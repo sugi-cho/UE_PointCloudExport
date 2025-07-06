@@ -2,6 +2,7 @@
 
 #include "LidarPointCloudComponent.h"
 #include "SceneManagement.h"            // GetViewFrustumBounds
+#include "Camera/PlayerCameraManager.h"
 #include "HAL/FileManager.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
@@ -13,8 +14,7 @@ static void BuildFrustumFromCamera(
     const APlayerCameraManager* Camera,
     FConvexVolume& OutFrustum)
 {
-    FMinimalViewInfo ViewInfo;
-    Camera->GetCameraView(0.f, ViewInfo);
+    const FMinimalViewInfo ViewInfo = Camera->GetCameraCacheView();
 
     const FMatrix ViewMat = FInverseRotationMatrix(ViewInfo.Rotation) *
         FTranslationMatrix(-ViewInfo.Location);

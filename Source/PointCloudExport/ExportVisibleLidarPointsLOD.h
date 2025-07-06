@@ -5,6 +5,8 @@
 #include "LidarPointCloudActor.h"
 #include "ExportVisibleLidarPointsLOD.generated.h"
 
+class APlayerCameraManager;
+
 /**
 class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
  *
@@ -13,7 +15,7 @@ class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
  * 単位: Unreal ワールド座標系 (cm)
  */
 UCLASS()
-class YOURPROJECT_API UExportVisibleLidarPointsLOD final
+class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
     : public UBlueprintFunctionLibrary
 {
     GENERATED_BODY()
