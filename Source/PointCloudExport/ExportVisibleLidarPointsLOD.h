@@ -6,11 +6,11 @@
 #include "ExportVisibleLidarPointsLOD.generated.h"
 
 /**
- * ‰Â‹“_ŒQ‚ğ‘‚«o‚·ƒ†[ƒeƒBƒŠƒeƒBi‹——£ƒx[ƒXŠÈˆÕ LOD •tj
+class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
  *
- * ¶¬‚³‚ê‚éƒtƒ@ƒCƒ‹: 1 s 1 “_‚Ì ASCII
+ * ç”Ÿæˆã•ã‚Œã‚‹ãƒ•ã‚¡ã‚¤ãƒ«: 1 è¡Œ 1 ç‚¹ã® ASCII
  *   X Y Z R G B
- * ’PˆÊ: Unreal ƒ[ƒ‹ƒhÀ•WŒn (cm)
+ * å˜ä½: Unreal ãƒ¯ãƒ¼ãƒ«ãƒ‰åº§æ¨™ç³» (cm)
  */
 UCLASS()
 class YOURPROJECT_API UExportVisibleLidarPointsLOD final
@@ -21,16 +21,16 @@ class YOURPROJECT_API UExportVisibleLidarPointsLOD final
 public:
 
     /**
-     * @param PointCloudActor     ‘ÎÛ‚Æ‚È‚é LidarPointCloudActor
-     * @param Camera              QÆ‚·‚éƒJƒƒ‰ (GetPlayerCameraManager(0) „§)
-     * @param AbsoluteFilePath    —á: "C:/Temp/VisiblePoints.txt"
-     * @param NearFullResRadius   ‚±‚Ì‹——£ˆÈ“à‚Í‘S“_•Û         [cm]
-     * @param MidSkipRadius       ‚±‚Ì‹——£‚ğ’´‚¦‚é‚Æ SkipFactorMid ‚ÅŠÔˆø‚­ [cm]
-     * @param FarSkipRadius       ‚±‚Ì‹——£‚ğ’´‚¦‚é‚Æ SkipFactorFar ‚ÅŠÔˆø‚­ [cm]
-     * @param SkipFactorMid       ã‹L‹——£‘Ñ‚Å‚ÌƒTƒ“ƒvƒŠƒ“ƒOŠÔŠu (2=1/2 “_)
-     * @param SkipFactorFar       Å‰“‹——£‘Ñ‚Å‚ÌƒTƒ“ƒvƒŠƒ“ƒOŠÔŠu
-     * @param bWorldSpace         true: ƒ[ƒ‹ƒhÀ•W / false: “_ŒQƒ[ƒJƒ‹
-     * @return                    ¬Œ÷‰Â”Û
+     * @param PointCloudActor     å¯¾è±¡ã¨ãªã‚‹ LidarPointCloudActor
+     * @param Camera              å‚ç…§ã™ã‚‹ã‚«ãƒ¡ãƒ© (GetPlayerCameraManager(0) æ¨å¥¨)
+     * @param AbsoluteFilePath    ä¾‹: "C:/Temp/VisiblePoints.txt"
+     * @param NearFullResRadius   ã“ã®è·é›¢ä»¥å†…ã¯å…¨ç‚¹ä¿æŒ         [cm]
+     * @param MidSkipRadius       ã“ã®è·é›¢ã‚’è¶…ãˆã‚‹ã¨ SkipFactorMid ã§é–“å¼•ã [cm]
+     * @param FarSkipRadius       ã“ã®è·é›¢ã‚’è¶…ãˆã‚‹ã¨ SkipFactorFar ã§é–“å¼•ã [cm]
+     * @param SkipFactorMid       ä¸Šè¨˜è·é›¢å¸¯ã§ã®ã‚µãƒ³ãƒ—ãƒªãƒ³ã‚°é–“éš” (2=1/2 ç‚¹)
+     * @param SkipFactorFar       æœ€é è·é›¢å¸¯ã§ã®ã‚µãƒ³ãƒ—ãƒªãƒ³ã‚°é–“éš”
+     * @param bWorldSpace         true: ãƒ¯ãƒ¼ãƒ«ãƒ‰åº§æ¨™ / false: ç‚¹ç¾¤ãƒ­ãƒ¼ã‚«ãƒ«
+     * @return                    æˆåŠŸå¯å¦
      */
     UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
     static bool ExportVisiblePointsLOD(
