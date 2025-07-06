@@ -2,6 +2,7 @@
 
 #include "LidarPointCloudComponent.h"
 #include "SceneManagement.h"            // GetViewFrustumBounds
+#include "Camera/PlayerCameraManager.h"
 #include "HAL/FileManager.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
