@@ -14,8 +14,7 @@ static void BuildFrustumFromCamera(
     const APlayerCameraManager* Camera,
     FConvexVolume& OutFrustum)
 {
-    FMinimalViewInfo ViewInfo;
-    Camera->GetCameraView(0.f, ViewInfo);
+    const FMinimalViewInfo ViewInfo = Camera->GetCameraCacheView();
 
     const FMatrix ViewMat = FInverseRotationMatrix(ViewInfo.Rotation) *
         FTranslationMatrix(-ViewInfo.Location);
