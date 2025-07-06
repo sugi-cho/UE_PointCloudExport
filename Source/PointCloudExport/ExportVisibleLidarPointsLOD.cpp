@@ -1,7 +1,7 @@
 ﻿#include "ExportVisibleLidarPointsLOD.h"
 
 #include "LidarPointCloudComponent.h"
-#include "Rendering/ScenePrivate.h"     // GetViewFrustumBounds
+#include "SceneManagement.h"            // GetViewFrustumBounds
 #include "HAL/FileManager.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
