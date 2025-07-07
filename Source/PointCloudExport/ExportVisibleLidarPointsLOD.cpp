@@ -33,6 +33,18 @@ static void BuildFrustumFromCamera(
 
     const FMatrix ViewProj = ViewMat * ProjMat;
     GetViewFrustumBounds(OutFrustum, ViewProj, /*bUseNearPlane=*/false);
+
+    UE_LOG(LogTemp, Log, TEXT("-- BuildFrustumFromCamera --"));
+    UE_LOG(LogTemp, Log, TEXT("Location: %s"), *ViewInfo.Location.ToString());
+    UE_LOG(LogTemp, Log, TEXT("Rotation: %s"), *ViewInfo.Rotation.ToCompactString());
+    UE_LOG(LogTemp, Log, TEXT("HalfFOV(rad): %f Aspect: %f"), HalfFOV, ViewInfo.AspectRatio);
+    UE_LOG(LogTemp, Log, TEXT("View matrix: %s"), *ViewMat.ToString());
+    UE_LOG(LogTemp, Log, TEXT("Projection matrix: %s"), *ProjMat.ToString());
+    UE_LOG(LogTemp, Log, TEXT("ViewProj matrix: %s"), *ViewProj.ToString());
+    for (int32 i = 0; i < OutFrustum.Planes.Num(); ++i)
+    {
+        UE_LOG(LogTemp, Log, TEXT("Plane %d: %s"), i, *OutFrustum.Planes[i].ToString());
+    }
 }
 
 // ------------------------------------------------------------
