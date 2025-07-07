@@ -16,9 +16,10 @@ static void BuildFrustumFromCamera(
 {
     const FMinimalViewInfo ViewInfo = Camera->GetCameraCacheView();
 
-    // ワールド → ビュー行列。位置を原点に移動させてから回転の逆を適用する
-    const FMatrix ViewMat = FTranslationMatrix(-ViewInfo.Location) *
-        FInverseRotationMatrix(ViewInfo.Rotation);
+    // ワールド → ビュー行列。Unreal の標準に合わせ
+    // 逆回転を適用してから位置を打ち消す
+    const FMatrix ViewMat = FInverseRotationMatrix(ViewInfo.Rotation) *
+        FTranslationMatrix(-ViewInfo.Location);
 
     const float   NearPlane = GNearClippingPlane;
     const float   FarPlane = WORLD_MAX;                     // 十分遠い
