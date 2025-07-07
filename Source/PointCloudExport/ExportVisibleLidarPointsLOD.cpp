@@ -25,7 +25,7 @@ static void BuildFrustumFromCamera(
 
     // UE は Reversed‑Z がデフォルト
     const FMatrix ProjMat = FReversedZPerspectiveMatrix(
-        HalfFOV * 2.f,
+        HalfFOV,
         ViewInfo.AspectRatio,
         NearPlane,
         FarPlane);
