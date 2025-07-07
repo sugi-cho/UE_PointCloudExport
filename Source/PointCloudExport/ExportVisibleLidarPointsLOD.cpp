@@ -13,54 +13,80 @@
 // ------------------------------------------------------------
 //  ヘルパ: カメラの視錐台を作る
 // ------------------------------------------------------------
-static void BuildFrustumFromCamera(
-    const APlayerCameraManager* Camera,
-    FConvexVolume& OutFrustum)
+static void BuildFrustumFromCamera(const APlayerCameraManager* Camera, FConvexVolume& OutFrustum)
 {
-    // カメラ情報取得
+    OutFrustum.Planes.Empty();
+
     const FMinimalViewInfo ViewInfo = Camera->GetCameraCacheView();
+    const FVector CamLoc = ViewInfo.Location;
+    const FRotator CamRot = ViewInfo.Rotation;
+    const float Near = GNearClippingPlane;
+    const float Far = 10000.f; // 必要に応じて
+    const float Aspect = ViewInfo.AspectRatio;
+    const float FOV = FMath::DegreesToRadians(ViewInfo.FOV);
 
-    // ビュー行列生成
-    const FMatrix ViewMat = FInverseRotationMatrix(ViewInfo.Rotation) *
-        FTranslationMatrix(-ViewInfo.Location);
+    const FVector Forward = CamRot.Vector();
+    const FVector Right = FRotationMatrix(CamRot).GetScaledAxis(EAxis::Y);
+    const FVector Up = FRotationMatrix(CamRot).GetScaledAxis(EAxis::Z);
 
-    // クリップ面設定
-    const float NearPlane = GNearClippingPlane;    // 例: 0.01
-    const float FarPlane = 100000.f;               // 有限の最大距離を設定
-    const float HalfFOV = FMath::DegreesToRadians(ViewInfo.FOV) * 0.5f;
+    const FVector NearCenter = CamLoc + Forward * Near;
+    const FVector FarCenter = CamLoc + Forward * Far;
 
-    // Reversed-Z 射影行列 (Far/Near の順に引数を渡す)
-    const FMatrix ProjMat = FReversedZPerspectiveMatrix(
-        HalfFOV * 2.f,
-        ViewInfo.AspectRatio,
-        FarPlane,
-        NearPlane);
+    const float NearHeight = 2.f * FMath::Tan(FOV / 2.f) * Near;
+    const float NearWidth = NearHeight * Aspect;
+    const float FarHeight = 2.f * FMath::Tan(FOV / 2.f) * Far;
+    const float FarWidth = FarHeight * Aspect;
+
+    // Near plane corners
+    FVector NTl = NearCenter + (Up * (NearHeight / 2)) - (Right * (NearWidth / 2));
+    FVector NTr = NearCenter + (Up * (NearHeight / 2)) + (Right * (NearWidth / 2));
+    FVector NBl = NearCenter - (Up * (NearHeight / 2)) - (Right * (NearWidth / 2));
+    FVector NBr = NearCenter - (Up * (NearHeight / 2)) + (Right * (NearWidth / 2));
+    // Far plane corners
+    FVector FTl = FarCenter + (Up * (FarHeight / 2)) - (Right * (FarWidth / 2));
+    FVector FTr = FarCenter + (Up * (FarHeight / 2)) + (Right * (FarWidth / 2));
+    FVector FBl = FarCenter - (Up * (FarHeight / 2)) - (Right * (FarWidth / 2));
+    FVector FBr = FarCenter - (Up * (FarHeight / 2)) + (Right * (FarWidth / 2));
+
+    // 6 planes (Far面のみ逆順)
+    OutFrustum.Planes.Add(FPlane(NTl, NTr, NBr)); // Near
+    OutFrustum.Planes.Add(FPlane(FTr, FTl, FBl)); // Far
+    OutFrustum.Planes.Add(FPlane(FTl, NTl, NBl)); // Left
+    OutFrustum.Planes.Add(FPlane(NTr, FTr, FBr)); // Right
+    OutFrustum.Planes.Add(FPlane(NTl, FTl, FTr)); // Top
+    OutFrustum.Planes.Add(FPlane(NBl, NBr, FBr)); // Bottom
 
 #if !(UE_BUILD_SHIPPING)
-    UE_LOG(LogTemp, Log, TEXT("ViewMat:\n%s"), *ViewMat.ToString());
-    UE_LOG(LogTemp, Log, TEXT("ProjMat:\n%s"), *ProjMat.ToString());
-#endif
-
-    // ビュー・プロジェクション行列合成
-    const FMatrix ViewProj = ViewMat * ProjMat;
-
-    // 視錐台構築 (ニアクリップ面も含める)
-    GetViewFrustumBounds(OutFrustum, ViewProj, /*bUseNearPlane=*/true);
-
-#if !(UE_BUILD_SHIPPING)
-    UE_LOG(LogTemp, Log, TEXT("Num Frustum Planes (pre-transform): %d"), OutFrustum.Planes.Num());
+    UE_LOG(LogTemp, Log, TEXT("Manual Frustum Planes (No Flip):"));
     for (int32 i = 0; i < OutFrustum.Planes.Num(); ++i)
     {
         const FPlane& Plane = OutFrustum.Planes[i];
-        UE_LOG(LogTemp, Log,
-            TEXT("  Plane[%d]: Normal=(%.3f, %.3f, %.3f) W=%.3f"),
+        UE_LOG(LogTemp, Log, TEXT("  Plane[%d]: Normal=(%.3f, %.3f, %.3f) W=%.3f"),
             i, Plane.X, Plane.Y, Plane.Z, Plane.W);
     }
-    UE_LOG(LogTemp, Log,
-        TEXT("BuildFrustumFromCamera: Loc=%s Rot=%s FOV=%.3f Aspect=%.3f"),
-        *ViewInfo.Location.ToString(), *ViewInfo.Rotation.ToString(),
-        ViewInfo.FOV, ViewInfo.AspectRatio);
 #endif
+}
+
+// --- Manual test: Frustumカリング動作を1点だけで明示デバッグ ---
+void DebugTestSinglePointInFrustum(const FVector& Pt, const FConvexVolume& Frustum)
+{
+    for (int i = 0; i < Frustum.Planes.Num(); ++i) {
+        const FPlane& Plane = Frustum.Planes[i];
+        float Dist = Plane.PlaneDot(Pt); // = N・P+W
+        UE_LOG(LogTemp, Log, TEXT("Plane[%d]: N=(%.3f,%.3f,%.3f) W=%.3f | Dot=%.3f"), i, Plane.X, Plane.Y, Plane.Z, Plane.W, Dist);
+    }
+}
+
+bool IsPointInFrustum(const FVector& Pt, const FConvexVolume& Frustum)
+{
+    for (const FPlane& Plane : Frustum.Planes)
+    {
+        if (Plane.PlaneDot(Pt) > 0.f) // 点が平面の外側にある
+        {
+            return false;
+        }
+    }
+    return true; // 全ての平面の内側にある
 }
 
 // ------------------------------------------------------------
@@ -102,6 +128,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         *CloudTransform.GetLocation().ToString(),
         *CloudTransform.GetRotation().Rotator().ToString(),
         *CloudTransform.GetScale3D().ToString());
+
+    DebugTestSinglePointInFrustum(
+        FVector(0.f, 0.f, 0.f), Frustum); // デバッグ用: 原点を視錐台に投影
 #endif
 
     // ワールド→点群ローカル変換行列
@@ -125,7 +154,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     // 視錐台内の点群取得
     TArray64<FLidarPointCloudPoint*> VisiblePts;
-    Cloud->GetPointsInFrustum(VisiblePts, Frustum, /*bVisibleOnly=*/true);
+    Cloud->GetPointsInConvexVolume(VisiblePts, Frustum, /*bVisibleOnly=*/true);
 #if !(UE_BUILD_SHIPPING)
     UE_LOG(LogTemp, Log,
         TEXT("ExportVisiblePointsLOD: %lld points in frustum"), VisiblePts.Num());
@@ -138,9 +167,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     // 2) 距離ベースの簡易LOD
     const FVector CamLoc = Camera->GetCameraLocation();
-    const float NearSq = FMath::Square(NearFullResRadius);
-    const float MidSq = FMath::Square(MidSkipRadius);
-    const float FarSq = FMath::Square(FarSkipRadius);
 
     const FTransform& CloudToWorld = Comp->GetComponentTransform();
     TArray<FString> Lines;
@@ -156,24 +182,38 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     }
 #endif
 
-    int32 MidCounter = 0, FarCounter = 0;
+    const FTransform& CloudToWorldRef = Comp->GetComponentTransform();
+    int32 SampleCounter = 0;
     for (const auto* P : VisiblePts)
     {
-        const FVector PosWS = CloudToWorld.TransformPosition(FVector(P->Location));
-        const float DistSq = FVector::DistSquared(PosWS, CamLoc);
-        if (DistSq > FarSq)
-        {
-            if ((++FarCounter % SkipFactorFar) != 0) continue;
+        const FVector PosWS = CloudToWorldRef.TransformPosition(FVector(P->Location));
+        float Dist = FVector::Dist(PosWS, CamLoc);
+        float Skip = 1.0f;
+
+        if (Dist > FarSkipRadius) {
+            Skip = (float)SkipFactorFar;
         }
-        else if (DistSq > MidSq)
+        else if (Dist > MidSkipRadius) {
+            float t = (Dist - MidSkipRadius) / (FarSkipRadius - MidSkipRadius);
+            Skip = FMath::Lerp((float)SkipFactorMid, (float)SkipFactorFar, t);
+        }
+        else if (Dist > NearFullResRadius) {
+            float t = (Dist - NearFullResRadius) / (MidSkipRadius - NearFullResRadius);
+            Skip = FMath::Lerp(1.0f, (float)SkipFactorMid, t);
+        }
+        // else: Skip = 1.0f
+
+        ++SampleCounter;
+        if (FMath::Fmod((float)SampleCounter, Skip) >= 1.0f) continue;
+        if (IsPointInFrustum(PosWS, Frustum) == false)
         {
-            if ((++MidCounter % SkipFactorMid) != 0) continue;
+            continue; // 視錐台外の点はスキップ
         }
         const FVector LocalPos = FVector(P->Location);
         const FVector UsePos = (bWorldSpace ? PosWS : LocalPos) * 0.01f;
         Lines.Emplace(
             FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
-                UsePos.X, UsePos.Y, UsePos.Z,
+                UsePos.X, -UsePos.Y, UsePos.Z,
                 P->Color.R, P->Color.G, P->Color.B));
     }
 
