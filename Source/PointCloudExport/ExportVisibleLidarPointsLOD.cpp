@@ -114,12 +114,12 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         // else Near 範囲: 常に保持
 
         // --- 行を追加 ---
-        const FVector UsePos = bWorldSpace ? PosWS
-            : FVector(P->Location);
+        const FVector UsePos = (bWorldSpace ? PosWS
+            : FVector(P->Location)) * 0.01;
 
         const FColor& Col = P->Color;
         Lines.Emplace(
-            FString::Printf(TEXT("%.3f %.3f %.3f %d %d %d"),
+            FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
                 UsePos.X, UsePos.Y, UsePos.Z,
                 Col.R, Col.G, Col.B));
     }
