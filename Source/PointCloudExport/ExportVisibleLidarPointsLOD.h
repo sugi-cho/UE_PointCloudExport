@@ -46,4 +46,12 @@ public:
         int32                  SkipFactorFar = 10,
         bool                   bWorldSpace = true
     );
+
+private:
+    /** View/Proj 計算＋視錐台生成＆ログ出力 */
+    static void BuildFrustumFromCamera(
+        const APlayerCameraManager* Camera,
+        FMatrix& OutView,
+        FMatrix& OutProj,
+        FConvexVolume& OutFrustumWS);
 };

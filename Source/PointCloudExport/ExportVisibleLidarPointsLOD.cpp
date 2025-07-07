@@ -1,166 +1,138 @@
-﻿#include "ExportVisibleLidarPointsLOD.h"
+﻿// ExportVisibleLidarPointsLOD.cpp  – UE 5.5‑compatible, cm‑based, frustum‑culling fixed (Far plane −CamDir)
+// NOTE: replace the existing file with this entire content.
+
+#include "ExportVisibleLidarPointsLOD.h"
 
 #include "LidarPointCloudComponent.h"
-#include "SceneManagement.h"            // GetViewFrustumBounds
-#include "Camera/PlayerCameraManager.h"
+#include "SceneManagement.h"          // GetViewFrustumBounds, DrawDebug helpers
+#include "Math/Plane.h"               // FPlane utilities
+#include "Kismet/GameplayStatics.h"   // POV helpers
 #include "HAL/FileManager.h"
-#include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 
-// ------------------------------------------------------------
-//  ヘルパ: カメラの視錐台を作る
-// ------------------------------------------------------------
-static void BuildFrustumFromCamera(
+////////////////////////////////////////////////////////////////
+// 1) Build view/proj & frustum  (world space)
+////////////////////////////////////////////////////////////////
+void UExportVisibleLidarPointsLOD::BuildFrustumFromCamera(
     const APlayerCameraManager* Camera,
-    FConvexVolume& OutFrustum)
+    FMatrix& OutView,
+    FMatrix& OutProj,
+    FConvexVolume& OutFrustumWS)
 {
-    const FMinimalViewInfo ViewInfo = Camera->GetCameraCacheView();
+    const FMinimalViewInfo ViewInfo = Camera->GetCameraCacheView();   // UE5.5 preferred
 
-    // ワールド → ビュー行列。Unreal の標準に合わせ
-    // 逆回転を適用してから位置を打ち消す
-    const FMatrix ViewMat = FInverseRotationMatrix(ViewInfo.Rotation) *
+    OutView = FInverseRotationMatrix(ViewInfo.Rotation) *
         FTranslationMatrix(-ViewInfo.Location);
 
-    const float   NearPlane = GNearClippingPlane;
-    const float   FarPlane = WORLD_MAX;                     // 十分遠い
-    const float   HalfFOV = FMath::DegreesToRadians(ViewInfo.FOV) * 0.5f;
+    OutProj = ViewInfo.CalculateProjectionMatrix();                   // Reverse‑Z persp
 
-    // UE は Reversed‑Z がデフォルト
-    const FMatrix ProjMat = FReversedZPerspectiveMatrix(
-        HalfFOV,
-        ViewInfo.AspectRatio,
-        NearPlane,
-        FarPlane);
+    const FMatrix ViewProj = OutView * OutProj;
+    GetViewFrustumBounds(OutFrustumWS, ViewProj, /*bUseNearPlane*/true);  // 5 planes
 
-    const FMatrix ViewProj = ViewMat * ProjMat;
-    GetViewFrustumBounds(OutFrustum, ViewProj, /*bUseNearPlane=*/false);
+    //----------------- add Far plane -----------------
+    constexpr float FarDist = 20000.f;                     // 200 m  (scene‑scale → cm)
+    const FVector CamPos = ViewInfo.Location;
+    const FVector CamDir = ViewInfo.Rotation.Vector();     // forward +X world
 
-    UE_LOG(LogTemp, Log, TEXT("-- BuildFrustumFromCamera --"));
-    UE_LOG(LogTemp, Log, TEXT("Location: %s"), *ViewInfo.Location.ToString());
-    UE_LOG(LogTemp, Log, TEXT("Rotation: %s"), *ViewInfo.Rotation.ToCompactString());
-    UE_LOG(LogTemp, Log, TEXT("HalfFOV(rad): %f Aspect: %f"), HalfFOV, ViewInfo.AspectRatio);
-    UE_LOG(LogTemp, Log, TEXT("View matrix: %s"), *ViewMat.ToString());
-    UE_LOG(LogTemp, Log, TEXT("Projection matrix: %s"), *ProjMat.ToString());
-    UE_LOG(LogTemp, Log, TEXT("ViewProj matrix: %s"), *ViewProj.ToString());
-    for (int32 i = 0; i < OutFrustum.Planes.Num(); ++i)
-    {
-        UE_LOG(LogTemp, Log, TEXT("Plane %d: %s"), i, *OutFrustum.Planes[i].ToString());
-    }
+    // UE rule: inside = (PlaneDot >= 0) → use −CamDir so inside faces camera.
+    FPlane FarWS(CamPos + CamDir * FarDist, -CamDir);
+    FarWS.Normalize();
+    OutFrustumWS.Planes.Add(FarWS);
+
+    //----------------- verbose log -----------------
+    UE_LOG(LogTemp, Log, TEXT("\n-- BuildFrustumFromCamera --"));
+    UE_LOG(LogTemp, Log, TEXT("Location: %s"), *CamPos.ToString());
+    UE_LOG(LogTemp, Log, TEXT("Rotation: %s"), *ViewInfo.Rotation.ToString());
+    UE_LOG(LogTemp, Log, TEXT("HalfFOV(rad): %.6f  Aspect: %.6f"),
+        FMath::DegreesToRadians(ViewInfo.FOV * 0.5f), ViewInfo.AspectRatio);
+    UE_LOG(LogTemp, Log, TEXT("View  : %s"), *OutView.ToString());
+    UE_LOG(LogTemp, Log, TEXT("Proj  : %s"), *OutProj.ToString());
+    UE_LOG(LogTemp, Log, TEXT("ViewP : %s"), *ViewProj.ToString());
+
+    for (int32 i = 0; i < OutFrustumWS.Planes.Num(); ++i)
+        UE_LOG(LogTemp, Log, TEXT("Plane %d: %s  dotCam=%.1f"),
+            i, *OutFrustumWS.Planes[i].ToString(), OutFrustumWS.Planes[i].PlaneDot(CamPos));
 }
 
-// ------------------------------------------------------------
-//  メイン関数
-// ------------------------------------------------------------
+////////////////////////////////////////////////////////////////
+// 2) Export entry
+////////////////////////////////////////////////////////////////
 bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     ALidarPointCloudActor* PointCloudActor,
     APlayerCameraManager* Camera,
     const FString& FilePath,
-    float                  NearFullResRadius,
-    float                  MidSkipRadius,
-    float                  FarSkipRadius,
-    int32                  SkipFactorMid,
-    int32                  SkipFactorFar,
-    bool                   bWorldSpace)
+    float NearFullResRadius,
+    float MidSkipRadius,
+    float FarSkipRadius,
+    int32 SkipFactorMid,
+    int32 SkipFactorFar,
+    bool  bWorldSpace)
 {
-    if (!PointCloudActor || !Camera)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: Invalid input."));
-        return false;
-    }
+    if (!PointCloudActor || !Camera) { UE_LOG(LogTemp, Warning, TEXT("Invalid input")); return false; }
 
     ULidarPointCloudComponent* Comp = PointCloudActor->GetPointCloudComponent();
     ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
-    if (!Cloud)
+    if (!Cloud) { UE_LOG(LogTemp, Warning, TEXT("No point cloud set")); return false; }
+
+    //---------------- 1) frustum WS
+    FMatrix ViewM, ProjM; FConvexVolume FrustumWS;
+    BuildFrustumFromCamera(Camera, ViewM, ProjM, FrustumWS);
+
+    //---------------- 2) frustum → local
+    const FMatrix WorldToLocal = Comp->GetComponentTransform().ToMatrixWithScale().InverseFast();
+    FConvexVolume FrustumLS;  FrustumLS.Planes.Reserve(FrustumWS.Planes.Num());
+
+    for (const FPlane& P : FrustumWS.Planes)
     {
-        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: No point cloud set."));
-        return false;
+        FPlane Local = P.TransformBy(WorldToLocal); // internal handles inverse transpose
+        Local.Normalize();
+        FrustumLS.Planes.Add(Local);
     }
 
-    /*------------------------------------------------------------*/
-    /* 1) 視錐台でフィルタ                                       */
-    /*------------------------------------------------------------*/
-    FConvexVolume Frustum;
-    BuildFrustumFromCamera(Camera, Frustum);
-
+    //---------------- 3) collect points
     TArray64<FLidarPointCloudPoint*> VisiblePts;
-    Cloud->GetPointsInFrustum(VisiblePts, Frustum, /*bVisibleOnly=*/true);
+    Cloud->GetPointsInConvexVolume(VisiblePts, FrustumLS, true);
+    UE_LOG(LogTemp, Log, TEXT("== Points in FrustumLS: %lld =="), VisiblePts.Num());
 
-    if (VisiblePts.Num() == 0)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: No points in frustum."));
-        return false;
-    }
+    if (VisiblePts.IsEmpty()) { UE_LOG(LogTemp, Warning, TEXT("No points in frustum")); return false; }
 
-    /*------------------------------------------------------------*/
-    /* 2) 距離ベース簡易 LOD                                      */
-    /*------------------------------------------------------------*/
+    //---------------- 4) distance LOD
     const FVector CamLoc = Camera->GetCameraLocation();
-    const float NearSq = NearFullResRadius * NearFullResRadius;
-    const float MidSq = MidSkipRadius * MidSkipRadius;
-    const float FarSq = FarSkipRadius * FarSkipRadius;
+    const float NearSq = FMath::Square(NearFullResRadius);
+    const float MidSq = FMath::Square(MidSkipRadius);
+    const float FarSq = FMath::Square(FarSkipRadius);
 
     const FTransform& CloudToWorld = Comp->GetComponentTransform();
+    TArray<FString> Lines; Lines.Reserve(VisiblePts.Num());
 
-    //  出力先文字列バッファ
-    TArray<FString> Lines;
-    Lines.Reserve(VisiblePts.Num());        // 上限見積もり
-
-    int32 MidCounter = 0;
-    int32 FarCounter = 0;
+    int32 NearCnt = 0, MidCnt = 0, FarCnt = 0; int32 MidCtr = 0, FarCtr = 0;
 
     for (const FLidarPointCloudPoint* P : VisiblePts)
     {
-        // ローカル→ワールドで距離判定
-        const FVector PosWS = CloudToWorld.TransformPosition(
-            FVector(P->Location));
+        FVector WP = CloudToWorld.TransformPosition(FVector(P->Location));
+        float DistSq = FVector::DistSquared(WP, CamLoc);
 
-        const float DistSq = FVector::DistSquared(PosWS, CamLoc);
+        bool Keep = true;
+        if (DistSq > FarSq) { Keep = (++FarCtr % SkipFactorFar) == 0; ++FarCnt; }
+        else if (DistSq > MidSq) { Keep = (++MidCtr % SkipFactorMid) == 0; ++MidCnt; }
+        else { ++NearCnt; }
 
-        // --- LOD スキップ判定 ---
-        if (DistSq > FarSq)
-        {
-            if (++FarCounter % SkipFactorFar) continue;     // Skip
-        }
-        else if (DistSq > MidSq)
-        {
-            if (++MidCounter % SkipFactorMid) continue;     // Skip
-        }
-        // else Near 範囲: 常に保持
-
-        // --- 行を追加 ---
-        const FVector UsePos = (bWorldSpace ? PosWS
-            : FVector(P->Location)) * 0.01;
-
-        const FColor& Col = P->Color;
-        Lines.Emplace(
-            FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
-                UsePos.X, UsePos.Y, UsePos.Z,
-                Col.R, Col.G, Col.B));
+        if (!Keep) continue;
+        const FVector OutPos = bWorldSpace ? WP : FVector(P->Location);
+        const FColor& C = P->Color;
+        Lines.Emplace(FString::Printf(TEXT("%.3f %.3f %.3f %d %d %d"), OutPos.X, OutPos.Y, OutPos.Z, C.R, C.G, C.B));
     }
 
-    if (Lines.Num() == 0)
+    UE_LOG(LogTemp, Log, TEXT("After LOD   Near:%d Mid:%d Far:%d  -> Written:%d"), NearCnt, MidCnt, FarCnt, Lines.Num());
+    if (Lines.IsEmpty()) { UE_LOG(LogTemp, Warning, TEXT("All points skipped")); return false; }
+
+    //---------------- 5) write TXT (meters)
+    FString Content = FString::Join(Lines, TEXT("\n")) + TEXT("\n");
+    if (!FFileHelper::SaveStringToFile(Content, *FilePath, FFileHelper::EEncodingOptions::AutoDetect, &IFileManager::Get(), FILEWRITE_AllowRead))
     {
-        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: All points skipped by LOD."));
-        return false;
+        UE_LOG(LogTemp, Error, TEXT("Failed to save %s"), *FilePath); return false;
     }
 
-    /*------------------------------------------------------------*/
-    /* 3) ファイル書き出し                                         */
-    /*------------------------------------------------------------*/
-    const FString Joined = FString::Join(Lines, TEXT("\n")) + TEXT("\n");
-    if (!FFileHelper::SaveStringToFile(
-        Joined,
-        *FilePath,
-        FFileHelper::EEncodingOptions::AutoDetect,
-        &IFileManager::Get(),
-        FILEWRITE_AllowRead))
-    {
-        UE_LOG(LogTemp, Error, TEXT("ExportVisiblePointsLOD: Failed to save file %s"),
-            *FilePath);
-        return false;
-    }
-
-    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsLOD: Wrote %d points → %s"),
-        Lines.Num(), *FilePath);
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsLOD: wrote %d lines => %s"), Lines.Num(), *FilePath);
     return true;
 }
