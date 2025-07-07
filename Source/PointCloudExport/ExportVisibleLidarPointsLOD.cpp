@@ -32,6 +32,33 @@ static void BuildFrustumFromCamera(
 
     const FMatrix ViewProj = ViewMat * ProjMat;
     GetViewFrustumBounds(OutFrustum, ViewProj, /*bUseNearPlane=*/false);
+
+#if !(UE_BUILD_SHIPPING)
+    const FVector CamLoc = ViewInfo.Location;
+    const FRotator CamRot = ViewInfo.Rotation;
+    UE_LOG(LogTemp, Log,
+        TEXT("BuildFrustumFromCamera: Loc=%s Rot=%s FOV=%f Aspect=%f"),
+        *CamLoc.ToString(), *CamRot.ToString(),
+        ViewInfo.FOV, ViewInfo.AspectRatio);
+
+    const FVector Forward = CamRot.Vector();
+    const FVector Right = CamRot.RotateVector(FVector::RightVector);
+    const FVector Up = CamRot.RotateVector(FVector::UpVector);
+
+    const float NearY = FMath::Tan(HalfFOV) * NearPlane;
+    const float NearX = NearY * ViewInfo.AspectRatio;
+
+    const FVector NearCenter = CamLoc + Forward * NearPlane;
+    const FVector NearTL = NearCenter + Up * NearY - Right * NearX;
+    const FVector NearTR = NearCenter + Up * NearY + Right * NearX;
+    const FVector NearBL = NearCenter - Up * NearY - Right * NearX;
+    const FVector NearBR = NearCenter - Up * NearY + Right * NearX;
+
+    UE_LOG(LogTemp, Verbose,
+        TEXT("Frustum Near Plane Corners:\n TL=%s\n TR=%s\n BL=%s\n BR=%s"),
+        *NearTL.ToString(), *NearTR.ToString(),
+        *NearBL.ToString(), *NearBR.ToString());
+#endif
 }
 
 // ------------------------------------------------------------
