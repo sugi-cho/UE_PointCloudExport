@@ -97,6 +97,11 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     TArray64<FLidarPointCloudPoint*> VisiblePts;
     Cloud->GetPointsInFrustum(VisiblePts, Frustum, /*bVisibleOnly=*/true);
+#if !(UE_BUILD_SHIPPING)
+    UE_LOG(LogTemp, Log,
+        TEXT("ExportVisiblePointsLOD: %lld points in frustum"),
+        VisiblePts.Num());
+#endif
 
     if (VisiblePts.Num() == 0)
     {
@@ -157,6 +162,12 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
+#if !(UE_BUILD_SHIPPING)
+    UE_LOG(LogTemp, Log,
+        TEXT("ExportVisiblePointsLOD: %d of %lld points after LOD"),
+        Lines.Num(), VisiblePts.Num());
+#endif
+
     /*------------------------------------------------------------*/
     /* 3) ファイル書き出し                                         */
     /*------------------------------------------------------------*/
@@ -173,7 +184,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
-    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsLOD: Wrote %d points → %s"),
-        Lines.Num(), *FilePath);
+    UE_LOG(LogTemp, Log,
+        TEXT("ExportVisiblePointsLOD: Wrote %d of %lld points → %s"),
+        Lines.Num(), VisiblePts.Num(), *FilePath);
     return true;
 }
