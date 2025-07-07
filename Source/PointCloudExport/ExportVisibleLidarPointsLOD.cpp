@@ -7,7 +7,6 @@
 #include "Math/Vector.h"
 #include "Math/Plane.h"
 #include "HAL/FileManager.h"
-#include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 
 // ------------------------------------------------------------
@@ -67,15 +66,6 @@ static void BuildFrustumFromCamera(const APlayerCameraManager* Camera, FConvexVo
 #endif
 }
 
-// --- Manual test: Frustumカリング動作を1点だけで明示デバッグ ---
-void DebugTestSinglePointInFrustum(const FVector& Pt, const FConvexVolume& Frustum)
-{
-    for (int i = 0; i < Frustum.Planes.Num(); ++i) {
-        const FPlane& Plane = Frustum.Planes[i];
-        float Dist = Plane.PlaneDot(Pt); // = N・P+W
-        UE_LOG(LogTemp, Log, TEXT("Plane[%d]: N=(%.3f,%.3f,%.3f) W=%.3f | Dot=%.3f"), i, Plane.X, Plane.Y, Plane.Z, Plane.W, Dist);
-    }
-}
 
 bool IsPointInFrustum(const FVector& Pt, const FConvexVolume& Frustum)
 {
@@ -129,8 +119,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         *CloudTransform.GetRotation().Rotator().ToString(),
         *CloudTransform.GetScale3D().ToString());
 
-    DebugTestSinglePointInFrustum(
-        FVector(0.f, 0.f, 0.f), Frustum); // デバッグ用: 原点を視錐台に投影
 #endif
 
     // ワールド→点群ローカル変換行列
@@ -182,11 +170,10 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     }
 #endif
 
-    const FTransform& CloudToWorldRef = Comp->GetComponentTransform();
     int32 SampleCounter = 0;
     for (const auto* P : VisiblePts)
     {
-        const FVector PosWS = CloudToWorldRef.TransformPosition(FVector(P->Location));
+        const FVector PosWS = CloudToWorld.TransformPosition(FVector(P->Location));
         float Dist = FVector::Dist(PosWS, CamLoc);
         float Skip = 1.0f;
 
