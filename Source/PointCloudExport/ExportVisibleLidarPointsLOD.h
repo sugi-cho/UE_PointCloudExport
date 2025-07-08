@@ -5,7 +5,7 @@
 #include "LidarPointCloudActor.h"
 #include "ExportVisibleLidarPointsLOD.generated.h"
 
-class APlayerCameraManager;
+class UCameraComponent;
 
 /**
 class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
@@ -24,7 +24,7 @@ public:
 
     /**
      * @param PointCloudActor     対象となる LidarPointCloudActor
-     * @param Camera              参照するカメラ (GetPlayerCameraManager(0) 推奨)
+     * @param Camera              参照するカメラコンポーネント
      * @param AbsoluteFilePath    例: "C:/Temp/VisiblePoints.txt"
      * @param FrustumFar          視錐台の Far 値                  [cm]
      * @param NearFullResRadius   この距離以内は全点保持         [cm]
@@ -39,7 +39,7 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
     static bool ExportVisiblePointsLOD(
         ALidarPointCloudActor* PointCloudActor,
-        APlayerCameraManager* Camera,
+        UCameraComponent*      Camera,
         const FString& AbsoluteFilePath,
         float                  FrustumFar = 10000.f,
         float                  NearFullResRadius = 5000.f,
