@@ -257,15 +257,15 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             continue; // 視錐台外の点はスキップ
         }
         const FVector LocalPos = FVector(P->Location);
-        const FVector UsePos = (bWorldSpace ? PosWS : LocalPos) * 0.01f;
+        const FVector UsePos = (bWorldSpace ? PosWS : LocalPos);
         Lines.Emplace(
             FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
-                UsePos.X, -UsePos.Y, UsePos.Z,
+                UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,//点群.txt形式は、デフォルトでメートル単位、Y軸を反転
                 P->Color.R, P->Color.G, P->Color.B));
 #if WITH_EDITOR
         if (bExportTexture)
         {
-            PosBuffer.Add(FLinearColor(UsePos.X, -UsePos.Y, UsePos.Z, 1.f));
+            PosBuffer.Add(FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f));
             ColorBuffer.Add(FColor(P->Color.R, P->Color.G, P->Color.B, 255));
         }
 #endif
