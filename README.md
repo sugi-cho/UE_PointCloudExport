@@ -35,3 +35,4 @@ PointCloudExport は Unreal Engine 5 用のプラグイン/サンプルプロジ
 元の LidarPointCloudAsset と同じフォルダに生成されます。
 テクスチャは NxN の正方形に点データを格納し、余ったピクセルは
 RGBA=0 となります。
+既に同名の UAsset が存在する場合は、`_1` などの連番を付けた名前で保存されます。
