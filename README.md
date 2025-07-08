@@ -18,3 +18,4 @@ PointCloudExport は Unreal Engine 5 用のプラグイン/サンプルプロジ
 
 ## 出力ファイル例
 `docs/example_output.txt` にはサンプルの書き出し結果を示します。各行は `X Y Z R G B` 形式で、単位はメートル基準です。
+![image](https://github.com/user-attachments/assets/20b55dfb-8459-4b8d-96ff-9db1ad6f79fd)
