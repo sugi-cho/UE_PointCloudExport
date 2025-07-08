@@ -8,6 +8,28 @@
 #include "Math/Plane.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
+#if WITH_EDITOR
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "UObject/Package.h"
+#include "Misc/PackageName.h"
+#include "Engine/Texture2D.h"
+#endif
+
+#if WITH_EDITOR
+// Return a package name that does not conflict with existing assets
+static FString MakeUniquePackageName(const FString& FolderPath, const FString& BaseName)
+{
+    FString PackageName = FolderPath / BaseName;
+    FString FileName = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
+    int32 Suffix = 1;
+    while (IFileManager::Get().FileExists(*FileName))
+    {
+        PackageName = FolderPath / FString::Printf(TEXT("%s_%d"), *BaseName, Suffix++);
+        FileName = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
+    }
+    return PackageName;
+}
+#endif
 
 // ------------------------------------------------------------
 //  ヘルパ: カメラの視錐台を作る
@@ -91,7 +113,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     float FarSkipRadius,
     int32 SkipFactorMid,
     int32 SkipFactorFar,
-    bool bWorldSpace)
+    bool bWorldSpace,
+    bool bExportTexture)
 {
     if (!PointCloudActor || !Camera)
     {
@@ -185,6 +208,15 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     const FTransform& CloudToWorld = Comp->GetComponentTransform();
     TArray<FString> Lines;
     Lines.Reserve(VisiblePts.Num());
+#if WITH_EDITOR
+    TArray<FLinearColor> PosBuffer;
+    TArray<FColor> ColorBuffer;
+    if (bExportTexture)
+    {
+        PosBuffer.Reserve(VisiblePts.Num());
+        ColorBuffer.Reserve(VisiblePts.Num());
+    }
+#endif
 
 #if !(UE_BUILD_SHIPPING)
     const int32 CheckCount = FMath::Min<int32>(10, VisiblePts.Num());
@@ -230,6 +262,13 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
                 UsePos.X, -UsePos.Y, UsePos.Z,
                 P->Color.R, P->Color.G, P->Color.B));
+#if WITH_EDITOR
+        if (bExportTexture)
+        {
+            PosBuffer.Add(FLinearColor(UsePos.X, -UsePos.Y, UsePos.Z, 1.f));
+            ColorBuffer.Add(FColor(P->Color.R, P->Color.G, P->Color.B, 255));
+        }
+#endif
     }
 
     if (Lines.Num() == 0)
@@ -255,6 +294,53 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             TEXT("ExportVisiblePointsLOD: Failed to save file %s"), *FilePath);
         return false;
     }
+
+#if WITH_EDITOR
+    const int32 PointCount = Lines.Num();
+    if (bExportTexture && PosBuffer.Num() == PointCount && ColorBuffer.Num() == PointCount)
+    {
+        const int32 TexDim = FMath::CeilToInt(FMath::Sqrt((float)PointCount));
+        TArray<FFloat16Color> PosPixels;
+        TArray<FColor> ColorPixels;
+        PosPixels.Init(FFloat16Color(FLinearColor::Transparent), TexDim * TexDim);
+        ColorPixels.Init(FColor(0,0,0,0), TexDim * TexDim);
+        for (int32 i = 0; i < PointCount; ++i)
+        {
+            const int32 X = i % TexDim;
+            const int32 Y = i / TexDim;
+            const int32 Idx = Y * TexDim + X;
+            PosPixels[Idx] = FFloat16Color(PosBuffer[i]);
+            ColorPixels[Idx] = ColorBuffer[i];
+        }
+        const FString CloudPackage = Cloud->GetOutermost()->GetName();
+        const FString FolderPath = FPackageName::GetLongPackagePath(CloudPackage);
+        const FString BaseName = Cloud->GetName();
+
+        const FString PosTexPackageName = MakeUniquePackageName(FolderPath, BaseName + TEXT("_PosTex"));
+        UPackage* PosPackage = CreatePackage(*PosTexPackageName);
+        UTexture2D* PosTex = NewObject<UTexture2D>(PosPackage, *FPackageName::GetShortName(PosTexPackageName), RF_Public | RF_Standalone);
+        PosTex->Source.Init(TexDim, TexDim, 1, 1, TSF_RGBA16F, (const uint8*)PosPixels.GetData());
+        PosTex->CompressionSettings = TC_HDR;
+        PosTex->SRGB = false;
+        PosTex->UpdateResource();
+        FAssetRegistryModule::AssetCreated(PosTex);
+        PosPackage->MarkPackageDirty();
+        const FString PosFileName = FPackageName::LongPackageNameToFilename(PosTexPackageName, FPackageName::GetAssetPackageExtension());
+        UPackage::SavePackage(PosPackage, PosTex, EObjectFlags::RF_Public | RF_Standalone, *PosFileName);
+
+        const FString ColorTexPackageName = MakeUniquePackageName(FolderPath, BaseName + TEXT("_ColorTex"));
+        UPackage* ColorPackage = CreatePackage(*ColorTexPackageName);
+        UTexture2D* ColorTex = NewObject<UTexture2D>(ColorPackage, *FPackageName::GetShortName(ColorTexPackageName), RF_Public | RF_Standalone);
+        ColorTex->Source.Init(TexDim, TexDim, 1, 1, TSF_BGRA8, (const uint8*)ColorPixels.GetData());
+        ColorTex->CompressionSettings = TC_Default;
+        ColorTex->SRGB = true;
+        ColorTex->UpdateResource();
+        FAssetRegistryModule::AssetCreated(ColorTex);
+        ColorPackage->MarkPackageDirty();
+        const FString ColorFileName = FPackageName::LongPackageNameToFilename(ColorTexPackageName, FPackageName::GetAssetPackageExtension());
+        UPackage::SavePackage(ColorPackage, ColorTex, EObjectFlags::RF_Public | RF_Standalone, *ColorFileName);
+    }
+#endif
 
     UE_LOG(LogTemp, Log,
         TEXT("ExportVisiblePointsLOD: Wrote %d of %lld points → %s"),
