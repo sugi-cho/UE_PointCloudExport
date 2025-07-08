@@ -36,3 +36,10 @@ PointCloudExport は Unreal Engine 5 用のプラグイン/サンプルプロジ
 テクスチャは NxN の正方形に点データを格納し、余ったピクセルは
 RGBA=0 となります。
 既に同名の UAsset が存在する場合は、`_1` などの連番を付けた名前で保存されます。
+
+| Position Texture | Color Texture |
+| --- | --- |
+| ![LPC_exported_PosTex](https://github.com/user-attachments/assets/3bf75909-378d-479a-b0ef-ca38bf5e1d9a) | ![LPC_exported_ColorTex](https://github.com/user-attachments/assets/cb0c40bb-8a15-46de-866e-d3d576bebde2) |
+
+https://github.com/user-attachments/assets/e04cfc73-da85-4b91-8200-584a6a38ebab
+
