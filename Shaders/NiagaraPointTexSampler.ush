@@ -1,0 +1,27 @@
+// NiagaraPointTexSampler.ush
+// Sample position and color textures generated from point cloud export
+// Inputs:
+//   PosTex   - HDR texture storing position (meters in RGB)
+//   ColorTex - color texture storing point colors
+//   TexDim   - size of the square textures (same for width and height)
+//   Sampler  - sampler state (use clamp)
+
+void SamplePointTex(
+    uint ParticleIndex,
+    out float3 OutPosition,
+    out float4 OutColor,
+    Texture2D PosTex,
+    Texture2D ColorTex,
+    SamplerState Sampler,
+    int TexDim)
+{
+    float x = fmod(ParticleIndex, TexDim);
+    float y = floor(ParticleIndex / TexDim);
+    float2 uv = (float2(x, y) + 0.5f) / float(TexDim);
+
+    float3 pos = PosTex.SampleLevel(Sampler, uv, 0).rgb;
+    OutColor = ColorTex.SampleLevel(Sampler, uv, 0);
+
+    // convert meters back to centimeters for Unreal world units
+    OutPosition = pos * 100.0f;
+}
