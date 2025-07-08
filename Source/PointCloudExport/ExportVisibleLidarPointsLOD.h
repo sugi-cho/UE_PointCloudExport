@@ -26,6 +26,7 @@ public:
      * @param PointCloudActor     対象となる LidarPointCloudActor
      * @param Camera              参照するカメラ (GetPlayerCameraManager(0) 推奨)
      * @param AbsoluteFilePath    例: "C:/Temp/VisiblePoints.txt"
+     * @param FrustumFar          視錐台の Far 値                  [cm]
      * @param NearFullResRadius   この距離以内は全点保持         [cm]
      * @param MidSkipRadius       この距離を超えると SkipFactorMid で間引く [cm]
      * @param FarSkipRadius       この距離を超えると SkipFactorFar で間引く [cm]
@@ -39,6 +40,7 @@ public:
         ALidarPointCloudActor* PointCloudActor,
         APlayerCameraManager* Camera,
         const FString& AbsoluteFilePath,
+        float                  FrustumFar = 10000.f,
         float                  NearFullResRadius = 5000.f,
         float                  MidSkipRadius = 20000.f,
         float                  FarSkipRadius = 100000.f,
