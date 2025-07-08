@@ -99,6 +99,32 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
+    if (FilePath.IsEmpty())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: FilePath is empty."));
+        return false;
+    }
+    if (NearFullResRadius <= 0.f || MidSkipRadius <= 0.f || FarSkipRadius <= 0.f)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: Radius values must be > 0."));
+        return false;
+    }
+    if (!(NearFullResRadius < MidSkipRadius && MidSkipRadius < FarSkipRadius))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: Radius values are inconsistent."));
+        return false;
+    }
+    if (SkipFactorMid < 1 || SkipFactorFar < 1)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: Skip factors must be >= 1."));
+        return false;
+    }
+    if (SkipFactorFar < SkipFactorMid)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: SkipFactorFar should be >= SkipFactorMid."));
+        return false;
+    }
+
     ULidarPointCloudComponent* Comp = PointCloudActor->GetPointCloudComponent();
     ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
     if (!Cloud)
