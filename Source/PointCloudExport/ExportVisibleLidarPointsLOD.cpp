@@ -1,4 +1,4 @@
-﻿#include "ExportVisibleLidarPointsLOD.h"
+#include "ExportVisibleLidarPointsLOD.h"
 
 #include "LidarPointCloudComponent.h"
 #include "SceneManagement.h"
@@ -106,7 +106,7 @@ bool IsPointInFrustum(const FVector& Pt, const FConvexVolume& Frustum)
 bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     ALidarPointCloudActor* PointCloudActor,
     APlayerCameraManager* Camera,
-    const FString& FilePath,
+    const FString& AbsoluteFilePath,
     float FrustumFar,
     float NearFullResRadius,
     float MidSkipRadius,
@@ -122,9 +122,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
-    if (FilePath.IsEmpty())
+    if (AbsoluteFilePath.IsEmpty())
     {
-        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: FilePath is empty."));
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: AbsoluteFilePath is empty."));
         return false;
     }
     if (NearFullResRadius <= 0.f || MidSkipRadius <= 0.f || FarSkipRadius <= 0.f)
@@ -286,12 +286,12 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     // 3) ファイル書き出し
     const FString Joined = FString::Join(Lines, TEXT("\n")) + TEXT("\n");
     if (!FFileHelper::SaveStringToFile(
-        Joined, *FilePath,
+        Joined, *AbsoluteFilePath,
         FFileHelper::EEncodingOptions::AutoDetect,
         &IFileManager::Get(), FILEWRITE_AllowRead))
     {
         UE_LOG(LogTemp, Error,
-            TEXT("ExportVisiblePointsLOD: Failed to save file %s"), *FilePath);
+            TEXT("ExportVisiblePointsLOD: Failed to save file %s"), *AbsoluteFilePath);
         return false;
     }
 
@@ -344,6 +344,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     UE_LOG(LogTemp, Log,
         TEXT("ExportVisiblePointsLOD: Wrote %d of %lld points → %s"),
-        Lines.Num(), VisiblePts.Num(), *FilePath);
+        Lines.Num(), VisiblePts.Num(), *AbsoluteFilePath);
     return true;
 }
