@@ -193,12 +193,12 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     TArray<FString> Lines;
     Lines.Reserve(VisiblePts.Num());
 #if WITH_EDITOR
-    TArray<FFloat16Color> PosPixels;
-    TArray<FColor> ColorPixels;
+    TArray<FLinearColor> PosBuffer;
+    TArray<FColor> ColorBuffer;
     if (bExportTexture)
     {
-        PosPixels.Reserve(VisiblePts.Num());
-        ColorPixels.Reserve(VisiblePts.Num());
+        PosBuffer.Reserve(VisiblePts.Num());
+        ColorBuffer.Reserve(VisiblePts.Num());
     }
 #endif
 
@@ -249,8 +249,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 #if WITH_EDITOR
         if (bExportTexture)
         {
-            PosPixels.Add(FFloat16Color(FLinearColor(UsePos.X, -UsePos.Y, UsePos.Z, 1.f)));
-            ColorPixels.Add(FColor(P->Color.R, P->Color.G, P->Color.B, 255));
+            PosBuffer.Add(FLinearColor(UsePos.X, -UsePos.Y, UsePos.Z, 1.f));
+            ColorBuffer.Add(FColor(P->Color.R, P->Color.G, P->Color.B, 255));
         }
 #endif
     }
@@ -281,8 +281,21 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
 #if WITH_EDITOR
     const int32 PointCount = Lines.Num();
-    if (bExportTexture && PosPixels.Num() == PointCount && ColorPixels.Num() == PointCount)
+    if (bExportTexture && PosBuffer.Num() == PointCount && ColorBuffer.Num() == PointCount)
     {
+        const int32 TexDim = FMath::CeilToInt(FMath::Sqrt((float)PointCount));
+        TArray<FFloat16Color> PosPixels;
+        TArray<FColor> ColorPixels;
+        PosPixels.Init(FFloat16Color(FLinearColor::Transparent), TexDim * TexDim);
+        ColorPixels.Init(FColor(0,0,0,0), TexDim * TexDim);
+        for (int32 i = 0; i < PointCount; ++i)
+        {
+            const int32 X = i % TexDim;
+            const int32 Y = i / TexDim;
+            const int32 Idx = Y * TexDim + X;
+            PosPixels[Idx] = FFloat16Color(PosBuffer[i]);
+            ColorPixels[Idx] = ColorBuffer[i];
+        }
         const FString CloudPackage = Cloud->GetOutermost()->GetName();
         const FString FolderPath = FPackageName::GetLongPackagePath(CloudPackage);
         const FString BaseName = Cloud->GetName();
@@ -290,7 +303,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         const FString PosTexPackageName = FolderPath + TEXT("/") + BaseName + TEXT("_PosTex");
         UPackage* PosPackage = CreatePackage(*PosTexPackageName);
         UTexture2D* PosTex = NewObject<UTexture2D>(PosPackage, *FPackageName::GetShortName(PosTexPackageName), RF_Public | RF_Standalone);
-        PosTex->Source.Init(PointCount, 1, 1, 1, TSF_RGBA16F, (const uint8*)PosPixels.GetData());
+        PosTex->Source.Init(TexDim, TexDim, 1, 1, TSF_RGBA16F, (const uint8*)PosPixels.GetData());
         PosTex->CompressionSettings = TC_HDR;
         PosTex->SRGB = false;
         PosTex->UpdateResource();
@@ -302,7 +315,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         const FString ColorTexPackageName = FolderPath + TEXT("/") + BaseName + TEXT("_ColorTex");
         UPackage* ColorPackage = CreatePackage(*ColorTexPackageName);
         UTexture2D* ColorTex = NewObject<UTexture2D>(ColorPackage, *FPackageName::GetShortName(ColorTexPackageName), RF_Public | RF_Standalone);
-        ColorTex->Source.Init(PointCount, 1, 1, 1, TSF_BGRA8, (const uint8*)ColorPixels.GetData());
+        ColorTex->Source.Init(TexDim, TexDim, 1, 1, TSF_BGRA8, (const uint8*)ColorPixels.GetData());
         ColorTex->CompressionSettings = TC_Default;
         ColorTex->SRGB = true;
         ColorTex->UpdateResource();

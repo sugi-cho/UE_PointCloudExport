@@ -33,3 +33,5 @@ PointCloudExport は Unreal Engine 5 用のプラグイン/サンプルプロジ
 カラーテクスチャを UAsset として保存するオプションがあります。
 関数の引数 `bExportTexture` を `true` にすると、これら 2 種類のテクスチャが
 元の LidarPointCloudAsset と同じフォルダに生成されます。
+テクスチャは NxN の正方形に点データを格納し、余ったピクセルは
+RGBA=0 となります。
