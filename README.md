@@ -2,22 +2,22 @@
 
 Developed with Unreal Engine 5
 
-PointCloudExport は Unreal Engine 5 用のプラグイン/サンプルプロジェクトです。Lidar PointCloud の可視ポイントを LOD 処理しながらテキストファイルへエクスポートする機能を提供します。
+PointCloudExport is a plugin and sample project for Unreal Engine 5. It allows you to export only the visible points of a Lidar PointCloud to a text file while applying LOD reduction.
 
-## 依存プラグインのインストール
-1. Epic Games Launcher から **Lidar Point Cloud** プラグインをインストールします。
-2. Unreal Editor を起動し、`Edit > Plugins` で **Lidar Point Cloud** を有効化してください。
+## Installing Dependencies
+1. Install the **Lidar Point Cloud** plugin via the Epic Games Launcher.
+2. Launch Unreal Editor and enable **Lidar Point Cloud** from `Edit > Plugins`.
 
-## プラグインのビルド
-1. 本リポジトリをクローンし、`PointCloudExport.uproject` を Unreal Editor または `GenerateProjectFiles` スクリプトでプロジェクトファイル化します。
-2. Visual Studio 等の IDE からビルドするか、`UE5Editor` 起動時に自動コンパイルさせます。
+## Building the Plugin
+1. Clone this repository and generate project files for `PointCloudExport.uproject` via Unreal Editor or the `GenerateProjectFiles` script.
+2. Build the project using Visual Studio (or your IDE of choice) or compile automatically when launching `UE5Editor`.
 
-## サンプルシーンでの使用例
-1. プロジェクトを開き、`Content/LiDAR-Test/L_Test.umap` をロードします。
-2. シーン内の `BP_Test` ブループリントには `ExportVisiblePointsLOD` 関数呼び出しが組み込まれており、実行すると視錐台内の点群を `output.txt` として書き出します。
+## Sample Scene
+1. Open the project and load `Content/LiDAR-Test/L_Test.umap`.
+2. The `BP_Test` blueprint in the scene calls `ExportVisiblePointsLOD`, which exports the visible point cloud within the view frustum as `output.txt`.
 
-## 出力ファイル例
-`docs/example_output.txt` にはサンプルの書き出し結果を示します。各行は `X Y Z R G B` 形式で、単位はメートル基準です。
+## Example Output
+`docs/example_output.txt` shows a sample of the exported data. Each line follows the format `X Y Z R G B` in meters.
 
 | X | Y | Z | R | G | B |
 | --- | --- | --- | --- | --- | --- |
@@ -27,19 +27,11 @@ PointCloudExport は Unreal Engine 5 用のプラグイン/サンプルプロジ
 
 ![image](https://github.com/user-attachments/assets/20b55dfb-8459-4b8d-96ff-9db1ad6f79fd)
 
-## HDR テクスチャ出力オプション
-`ExportVisiblePointsLOD` には、出力するテキストファイルに加えて
-各点の位置を RGB に書き込んだ HDR テクスチャと、点色のみを格納した
-カラーテクスチャを UAsset として保存するオプションがあります。
-関数の引数 `bExportTexture` を `true` にすると、これら 2 種類のテクスチャが
-元の LidarPointCloudAsset と同じフォルダに生成されます。
-テクスチャは NxN の正方形に点データを格納し、余ったピクセルは
-RGBA=0 となります。
-既に同名の UAsset が存在する場合は、`_1` などの連番を付けた名前で保存されます。
+## HDR Texture Export
+`ExportVisiblePointsLOD` can optionally save two UAssets: an HDR texture encoding point positions in RGB, and a color texture storing only the point colors. Set `bExportTexture` to `true` to generate these textures in the same folder as the original LidarPointCloudAsset. The textures are stored in an NxN square layout. Unused pixels are written as RGBA=0. If a UAsset with the same name already exists, a numbered suffix like `_1` is appended.
 
 | Position Texture | Color Texture |
 | --- | --- |
 | ![LPC_exported_PosTex](https://github.com/user-attachments/assets/3bf75909-378d-479a-b0ef-ca38bf5e1d9a) | ![LPC_exported_ColorTex](https://github.com/user-attachments/assets/cb0c40bb-8a15-46de-866e-d3d576bebde2) |
 
 https://github.com/user-attachments/assets/e04cfc73-da85-4b91-8200-584a6a38ebab
-
