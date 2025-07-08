@@ -98,8 +98,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     int32 SkipFactorMid,
     int32 SkipFactorFar,
     bool bWorldSpace,
-    bool bExportPositionHDR,
-    bool bExportColorTexture)
+    bool bExportTexture)
 {
     if (!PointCloudActor || !Camera)
     {
@@ -196,8 +195,11 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 #if WITH_EDITOR
     TArray<FFloat16Color> PosPixels;
     TArray<FColor> ColorPixels;
-    if (bExportPositionHDR) { PosPixels.Reserve(VisiblePts.Num()); }
-    if (bExportColorTexture) { ColorPixels.Reserve(VisiblePts.Num()); }
+    if (bExportTexture)
+    {
+        PosPixels.Reserve(VisiblePts.Num());
+        ColorPixels.Reserve(VisiblePts.Num());
+    }
 #endif
 
 #if !(UE_BUILD_SHIPPING)
@@ -245,12 +247,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
                 UsePos.X, -UsePos.Y, UsePos.Z,
                 P->Color.R, P->Color.G, P->Color.B));
 #if WITH_EDITOR
-        if (bExportPositionHDR)
+        if (bExportTexture)
         {
             PosPixels.Add(FFloat16Color(FLinearColor(UsePos.X, -UsePos.Y, UsePos.Z, 1.f)));
-        }
-        if (bExportColorTexture)
-        {
             ColorPixels.Add(FColor(P->Color.R, P->Color.G, P->Color.B, 255));
         }
 #endif
@@ -282,41 +281,35 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
 #if WITH_EDITOR
     const int32 PointCount = Lines.Num();
-    if ((bExportPositionHDR && PosPixels.Num() == PointCount) || (bExportColorTexture && ColorPixels.Num() == PointCount))
+    if (bExportTexture && PosPixels.Num() == PointCount && ColorPixels.Num() == PointCount)
     {
         const FString CloudPackage = Cloud->GetOutermost()->GetName();
         const FString FolderPath = FPackageName::GetLongPackagePath(CloudPackage);
         const FString BaseName = Cloud->GetName();
 
-        if (bExportPositionHDR)
-        {
-            const FString TexPackageName = FolderPath + TEXT("/") + BaseName + TEXT("_PosTex");
-            UPackage* TexPackage = CreatePackage(*TexPackageName);
-            UTexture2D* PosTex = NewObject<UTexture2D>(TexPackage, *FPackageName::GetShortName(TexPackageName), RF_Public | RF_Standalone);
-            PosTex->Source.Init(PointCount, 1, 1, 1, TSF_RGBA16F, (const uint8*)PosPixels.GetData());
-            PosTex->CompressionSettings = TC_HDR;
-            PosTex->SRGB = false;
-            PosTex->UpdateResource();
-            FAssetRegistryModule::AssetCreated(PosTex);
-            TexPackage->MarkPackageDirty();
-            const FString FileName = FPackageName::LongPackageNameToFilename(TexPackageName, FPackageName::GetAssetPackageExtension());
-            UPackage::SavePackage(TexPackage, PosTex, EObjectFlags::RF_Public | RF_Standalone, *FileName);
-        }
+        const FString PosTexPackageName = FolderPath + TEXT("/") + BaseName + TEXT("_PosTex");
+        UPackage* PosPackage = CreatePackage(*PosTexPackageName);
+        UTexture2D* PosTex = NewObject<UTexture2D>(PosPackage, *FPackageName::GetShortName(PosTexPackageName), RF_Public | RF_Standalone);
+        PosTex->Source.Init(PointCount, 1, 1, 1, TSF_RGBA16F, (const uint8*)PosPixels.GetData());
+        PosTex->CompressionSettings = TC_HDR;
+        PosTex->SRGB = false;
+        PosTex->UpdateResource();
+        FAssetRegistryModule::AssetCreated(PosTex);
+        PosPackage->MarkPackageDirty();
+        const FString PosFileName = FPackageName::LongPackageNameToFilename(PosTexPackageName, FPackageName::GetAssetPackageExtension());
+        UPackage::SavePackage(PosPackage, PosTex, EObjectFlags::RF_Public | RF_Standalone, *PosFileName);
 
-        if (bExportColorTexture)
-        {
-            const FString TexPackageName = FolderPath + TEXT("/") + BaseName + TEXT("_ColorTex");
-            UPackage* TexPackage = CreatePackage(*TexPackageName);
-            UTexture2D* ColorTex = NewObject<UTexture2D>(TexPackage, *FPackageName::GetShortName(TexPackageName), RF_Public | RF_Standalone);
-            ColorTex->Source.Init(PointCount, 1, 1, 1, TSF_BGRA8, (const uint8*)ColorPixels.GetData());
-            ColorTex->CompressionSettings = TC_Default;
-            ColorTex->SRGB = true;
-            ColorTex->UpdateResource();
-            FAssetRegistryModule::AssetCreated(ColorTex);
-            TexPackage->MarkPackageDirty();
-            const FString FileName = FPackageName::LongPackageNameToFilename(TexPackageName, FPackageName::GetAssetPackageExtension());
-            UPackage::SavePackage(TexPackage, ColorTex, EObjectFlags::RF_Public | RF_Standalone, *FileName);
-        }
+        const FString ColorTexPackageName = FolderPath + TEXT("/") + BaseName + TEXT("_ColorTex");
+        UPackage* ColorPackage = CreatePackage(*ColorTexPackageName);
+        UTexture2D* ColorTex = NewObject<UTexture2D>(ColorPackage, *FPackageName::GetShortName(ColorTexPackageName), RF_Public | RF_Standalone);
+        ColorTex->Source.Init(PointCount, 1, 1, 1, TSF_BGRA8, (const uint8*)ColorPixels.GetData());
+        ColorTex->CompressionSettings = TC_Default;
+        ColorTex->SRGB = true;
+        ColorTex->UpdateResource();
+        FAssetRegistryModule::AssetCreated(ColorTex);
+        ColorPackage->MarkPackageDirty();
+        const FString ColorFileName = FPackageName::LongPackageNameToFilename(ColorTexPackageName, FPackageName::GetAssetPackageExtension());
+        UPackage::SavePackage(ColorPackage, ColorTex, EObjectFlags::RF_Public | RF_Standalone, *ColorFileName);
     }
 #endif
 

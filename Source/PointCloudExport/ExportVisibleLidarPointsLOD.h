@@ -33,8 +33,7 @@ public:
      * @param SkipFactorMid       上記距離帯でのサンプリング間隔 (2=1/2 点)
      * @param SkipFactorFar       最遠距離帯でのサンプリング間隔
      * @param bWorldSpace         true: ワールド座標 / false: 点群ローカル
-     * @param bExportPositionHDR  XYZ を RGB に格納した HDR テクスチャを出力
-     * @param bExportColorTexture 点の RGB を格納したカラーテクスチャを出力
+     * @param bExportTexture      位置/色テクスチャを UAsset として保存
      * @return                    成功可否
      */
     UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
@@ -49,7 +48,6 @@ public:
         int32                  SkipFactorMid = 2,
         int32                  SkipFactorFar = 10,
         bool                   bWorldSpace = true,
-        bool                   bExportPositionHDR = false,
-        bool                   bExportColorTexture = false
+        bool                   bExportTexture = false
     );
 };
