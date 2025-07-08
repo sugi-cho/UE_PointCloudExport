@@ -35,3 +35,8 @@ PointCloudExport is a plugin and sample project for Unreal Engine 5. It allows y
 | ![LPC_exported_PosTex](https://github.com/user-attachments/assets/3bf75909-378d-479a-b0ef-ca38bf5e1d9a) | ![LPC_exported_ColorTex](https://github.com/user-attachments/assets/cb0c40bb-8a15-46de-866e-d3d576bebde2) |
 
 https://github.com/user-attachments/assets/e04cfc73-da85-4b91-8200-584a6a38ebab
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
