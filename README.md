@@ -26,3 +26,9 @@ PointCloudExport は Unreal Engine 5 用のプラグイン/サンプルプロジ
 | 0.456789 | 0.3456789 | 0.123456 | 127 | 0 | 255 |
 
 ![image](https://github.com/user-attachments/assets/20b55dfb-8459-4b8d-96ff-9db1ad6f79fd)
+
+## HDR テクスチャ出力オプション
+`ExportVisiblePointsLOD` には、出力するテキストファイルに加えて
+各点の位置を RGB に書き込んだ HDR テクスチャと、点色のみを格納した
+カラーテクスチャを UAsset として保存するオプションを追加しました。
+これらのテクスチャは元の LidarPointCloudAsset と同じフォルダに自動生成されます。

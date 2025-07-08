@@ -10,7 +10,12 @@ public class PointCloudExport : ModuleRules
 	
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "LidarPointCloudRuntime" });
+                PrivateDependencyModuleNames.AddRange(new string[] { "LidarPointCloudRuntime" });
+
+                if (Target.bBuildEditor)
+                {
+                        PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "AssetRegistry" });
+                }
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

@@ -8,6 +8,12 @@
 #include "Math/Plane.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
+#if WITH_EDITOR
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "UObject/Package.h"
+#include "Misc/PackageName.h"
+#include "Engine/Texture2D.h"
+#endif
 
 // ------------------------------------------------------------
 //  ヘルパ: カメラの視錐台を作る
@@ -91,7 +97,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     float FarSkipRadius,
     int32 SkipFactorMid,
     int32 SkipFactorFar,
-    bool bWorldSpace)
+    bool bWorldSpace,
+    bool bExportPositionHDR,
+    bool bExportColorTexture)
 {
     if (!PointCloudActor || !Camera)
     {
@@ -185,6 +193,12 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     const FTransform& CloudToWorld = Comp->GetComponentTransform();
     TArray<FString> Lines;
     Lines.Reserve(VisiblePts.Num());
+#if WITH_EDITOR
+    TArray<FFloat16Color> PosPixels;
+    TArray<FColor> ColorPixels;
+    if (bExportPositionHDR) { PosPixels.Reserve(VisiblePts.Num()); }
+    if (bExportColorTexture) { ColorPixels.Reserve(VisiblePts.Num()); }
+#endif
 
 #if !(UE_BUILD_SHIPPING)
     const int32 CheckCount = FMath::Min<int32>(10, VisiblePts.Num());
@@ -230,6 +244,16 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
                 UsePos.X, -UsePos.Y, UsePos.Z,
                 P->Color.R, P->Color.G, P->Color.B));
+#if WITH_EDITOR
+        if (bExportPositionHDR)
+        {
+            PosPixels.Add(FFloat16Color(FLinearColor(UsePos.X, -UsePos.Y, UsePos.Z, 1.f)));
+        }
+        if (bExportColorTexture)
+        {
+            ColorPixels.Add(FColor(P->Color.R, P->Color.G, P->Color.B, 255));
+        }
+#endif
     }
 
     if (Lines.Num() == 0)
@@ -255,6 +279,46 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             TEXT("ExportVisiblePointsLOD: Failed to save file %s"), *FilePath);
         return false;
     }
+
+#if WITH_EDITOR
+    const int32 PointCount = Lines.Num();
+    if ((bExportPositionHDR && PosPixels.Num() == PointCount) || (bExportColorTexture && ColorPixels.Num() == PointCount))
+    {
+        const FString CloudPackage = Cloud->GetOutermost()->GetName();
+        const FString FolderPath = FPackageName::GetLongPackagePath(CloudPackage);
+        const FString BaseName = Cloud->GetName();
+
+        if (bExportPositionHDR)
+        {
+            const FString TexPackageName = FolderPath + TEXT("/") + BaseName + TEXT("_PosTex");
+            UPackage* TexPackage = CreatePackage(*TexPackageName);
+            UTexture2D* PosTex = NewObject<UTexture2D>(TexPackage, *FPackageName::GetShortName(TexPackageName), RF_Public | RF_Standalone);
+            PosTex->Source.Init(PointCount, 1, 1, 1, TSF_RGBA16F, (const uint8*)PosPixels.GetData());
+            PosTex->CompressionSettings = TC_HDR;
+            PosTex->SRGB = false;
+            PosTex->UpdateResource();
+            FAssetRegistryModule::AssetCreated(PosTex);
+            TexPackage->MarkPackageDirty();
+            const FString FileName = FPackageName::LongPackageNameToFilename(TexPackageName, FPackageName::GetAssetPackageExtension());
+            UPackage::SavePackage(TexPackage, PosTex, EObjectFlags::RF_Public | RF_Standalone, *FileName);
+        }
+
+        if (bExportColorTexture)
+        {
+            const FString TexPackageName = FolderPath + TEXT("/") + BaseName + TEXT("_ColorTex");
+            UPackage* TexPackage = CreatePackage(*TexPackageName);
+            UTexture2D* ColorTex = NewObject<UTexture2D>(TexPackage, *FPackageName::GetShortName(TexPackageName), RF_Public | RF_Standalone);
+            ColorTex->Source.Init(PointCount, 1, 1, 1, TSF_BGRA8, (const uint8*)ColorPixels.GetData());
+            ColorTex->CompressionSettings = TC_Default;
+            ColorTex->SRGB = true;
+            ColorTex->UpdateResource();
+            FAssetRegistryModule::AssetCreated(ColorTex);
+            TexPackage->MarkPackageDirty();
+            const FString FileName = FPackageName::LongPackageNameToFilename(TexPackageName, FPackageName::GetAssetPackageExtension());
+            UPackage::SavePackage(TexPackage, ColorTex, EObjectFlags::RF_Public | RF_Standalone, *FileName);
+        }
+    }
+#endif
 
     UE_LOG(LogTemp, Log,
         TEXT("ExportVisiblePointsLOD: Wrote %d of %lld points → %s"),
