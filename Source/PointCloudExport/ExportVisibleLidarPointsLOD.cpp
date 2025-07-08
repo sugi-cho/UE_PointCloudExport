@@ -192,7 +192,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
         ++SampleCounter;
         if (FMath::Fmod((float)SampleCounter, Skip) >= 1.0f) continue;
-        if (IsPointInFrustum(PosWS, Frustum) == false)
+        // Frustum was transformed into the point cloud's local space, so use the
+        // local coordinates for the final frustum check as well.
+        if (IsPointInFrustum(FVector(P->Location), Frustum) == false)
         {
             continue; // 視錐台外の点はスキップ
         }
