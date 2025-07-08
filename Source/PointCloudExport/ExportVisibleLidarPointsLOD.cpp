@@ -12,7 +12,7 @@
 // ------------------------------------------------------------
 //  ヘルパ: カメラの視錐台を作る
 // ------------------------------------------------------------
-static void BuildFrustumFromCamera(const APlayerCameraManager* Camera, FConvexVolume& OutFrustum)
+static void BuildFrustumFromCamera(const APlayerCameraManager* Camera, FConvexVolume& OutFrustum, float Far)
 {
     OutFrustum.Planes.Empty();
 
@@ -20,7 +20,6 @@ static void BuildFrustumFromCamera(const APlayerCameraManager* Camera, FConvexVo
     const FVector CamLoc = ViewInfo.Location;
     const FRotator CamRot = ViewInfo.Rotation;
     const float Near = GNearClippingPlane;
-    const float Far = 10000.f; // 必要に応じて
     const float Aspect = ViewInfo.AspectRatio;
     const float FOV = FMath::DegreesToRadians(ViewInfo.FOV);
 
@@ -86,6 +85,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     ALidarPointCloudActor* PointCloudActor,
     APlayerCameraManager* Camera,
     const FString& FilePath,
+    float FrustumFar,
     float NearFullResRadius,
     float MidSkipRadius,
     float FarSkipRadius,
@@ -109,7 +109,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     // 1) 視錐台フィルタリング
     FConvexVolume Frustum;
-    BuildFrustumFromCamera(Camera, Frustum);
+    BuildFrustumFromCamera(Camera, Frustum, FrustumFar);
 
 #if !(UE_BUILD_SHIPPING)
     const FTransform& CloudTransform = Comp->GetComponentTransform();
