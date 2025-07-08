@@ -2,7 +2,7 @@
 
 #include "LidarPointCloudComponent.h"
 #include "SceneManagement.h"
-#include "Camera/PlayerCameraManager.h"
+#include "Camera/CameraComponent.h"
 #include "Runtime/Engine/Classes/Engine/EngineTypes.h"
 #include "Math/Vector.h"
 #include "Math/Plane.h"
@@ -34,16 +34,15 @@ static FString MakeUniquePackageName(const FString& FolderPath, const FString& B
 // ------------------------------------------------------------
 //  ヘルパ: カメラの視錐台を作る
 // ------------------------------------------------------------
-static void BuildFrustumFromCamera(const APlayerCameraManager* Camera, FConvexVolume& OutFrustum, float Far)
+static void BuildFrustumFromCamera(const UCameraComponent* Camera, FConvexVolume& OutFrustum, float Far)
 {
     OutFrustum.Planes.Empty();
 
-    const FMinimalViewInfo ViewInfo = Camera->GetCameraCacheView();
-    const FVector CamLoc = ViewInfo.Location;
-    const FRotator CamRot = ViewInfo.Rotation;
+    const FVector CamLoc = Camera->GetComponentLocation();
+    const FRotator CamRot = Camera->GetComponentRotation();
     const float Near = GNearClippingPlane;
-    const float Aspect = ViewInfo.AspectRatio;
-    const float FOV = FMath::DegreesToRadians(ViewInfo.FOV);
+    const float Aspect = Camera->AspectRatio;
+    const float FOV = FMath::DegreesToRadians(Camera->FieldOfView);
 
     const FVector Forward = CamRot.Vector();
     const FVector Right = FRotationMatrix(CamRot).GetScaledAxis(EAxis::Y);
@@ -105,7 +104,7 @@ bool IsPointInFrustum(const FVector& Pt, const FConvexVolume& Frustum)
 // ------------------------------------------------------------
 bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     ALidarPointCloudActor* PointCloudActor,
-    APlayerCameraManager* Camera,
+    UCameraComponent*      Camera,
     const FString& AbsoluteFilePath,
     float FrustumFar,
     float NearFullResRadius,
@@ -203,7 +202,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     }
 
     // 2) 距離ベースの簡易LOD
-    const FVector CamLoc = Camera->GetCameraLocation();
+    const FVector CamLoc = Camera->GetComponentLocation();
 
     const FTransform& CloudToWorld = Comp->GetComponentTransform();
     TArray<FString> Lines;
