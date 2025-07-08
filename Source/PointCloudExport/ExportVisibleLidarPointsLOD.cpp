@@ -47,7 +47,7 @@ static void BuildFrustumFromCamera(const APlayerCameraManager* Camera, FConvexVo
     FVector FBl = FarCenter - (Up * (FarHeight / 2)) - (Right * (FarWidth / 2));
     FVector FBr = FarCenter - (Up * (FarHeight / 2)) + (Right * (FarWidth / 2));
 
-    // 6 planes (Far面のみ逆順)
+    // 6 planes
     OutFrustum.Planes.Add(FPlane(NTl, NTr, NBr)); // Near
     OutFrustum.Planes.Add(FPlane(FTr, FTl, FBl)); // Far
     OutFrustum.Planes.Add(FPlane(FTl, NTl, NBl)); // Left
