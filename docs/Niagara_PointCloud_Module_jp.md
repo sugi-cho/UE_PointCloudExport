@@ -25,12 +25,11 @@ void Main(
     uint    ParticleID,
     Texture2D PosTex,
     Texture2D ColorTex,
-    SamplerState Sampler,
     int TexDim,
     out float3 Position,
     out float4 Color)
 {
-    SamplePointTex(ParticleID, Position, Color, PosTex, ColorTex, Sampler, TexDim);
+    SamplePointTex(ParticleID, Position, Color, PosTex, ColorTex, TexDim);
 }
 ```
 
@@ -38,10 +37,10 @@ void Main(
 * **PosTex** : `_PosTex` というサフィックスで出力される HDR テクスチャ (SRGB 無効)
 * **ColorTex** : `_ColorTex` というサフィックスで出力されるカラーテクスチャ (SRGB 有効)
 * **TexDim** : テクスチャのピクセル数 (幅/高さ)
-* **Sampler** : テクスチャサンプラー (Clamp を推奨)
 
-補助関数では位置をメートルからセンチメートルに変換するため `100` 倍して返します。
-これにより `Particle.Position` は Unreal の座標系と一致します。
+サンプルは `Texture.Load` を使って各ピクセルを読み込むためサンプラーステートは
+不要です。位置データはメートルからセンチメートルへ変換するため `100` 倍して返
+し、`Particle.Position` が Unreal の座標系と一致するようにします。
 
 ## 使い方
 1. Niagara System を作成し、初期化ステージにこのモジュールを追加します。

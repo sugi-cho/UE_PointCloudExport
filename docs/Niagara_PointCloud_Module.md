@@ -28,12 +28,11 @@ void Main(
     uint    ParticleID,
     Texture2D PosTex,
     Texture2D ColorTex,
-    SamplerState Sampler,
     int TexDim,
     out float3 Position,
     out float4 Color)
 {
-    SamplePointTex(ParticleID, Position, Color, PosTex, ColorTex, Sampler, TexDim);
+    SamplePointTex(ParticleID, Position, Color, PosTex, ColorTex, TexDim);
 }
 ```
 
@@ -41,9 +40,9 @@ void Main(
 * **PosTex** : HDR texture exported with suffix `_PosTex` (SRGB disabled).
 * **ColorTex** : color texture exported with suffix `_ColorTex` (SRGB enabled).
 * **TexDim** : dimension of the textures in pixels.
-* **Sampler** : texture sampler (use Clamp addressing).
 
-The helper multiplies the position by `100` to convert from meters back to
+The function samples each pixel using `Texture.Load` so no sampler state is
+required. The position is multiplied by `100` to convert from meters back to
 centimeters so that `Particle.Position` matches the Unreal coordinate system.
 
 ## Usage
