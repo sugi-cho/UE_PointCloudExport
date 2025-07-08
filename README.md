@@ -20,7 +20,7 @@ Outputting LOD-Processed Point Clouds from a Camera Frustum
 
 ## Sample Scene
 1. Open the project and load `Content/LiDAR-Test/L_Test.umap`.
-2. The `BP_Test` blueprint in the scene calls `ExportVisiblePointsLOD`, which exports the visible point cloud within the view frustum as `output.txt`.
+2. The `BP_Test` blueprint in the scene calls `ExportVisiblePointsLOD` and passes its `CameraComponent` to define the view frustum, exporting the visible point cloud to `output.txt`.
 
 ## Example Output
 `docs/example_output.txt` shows a sample of the exported data. Each line follows the format `X Y Z R G B` in meters.
