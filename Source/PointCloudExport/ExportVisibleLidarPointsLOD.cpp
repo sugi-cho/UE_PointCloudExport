@@ -248,6 +248,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     {
         FVector WorldPos;
         FVector LocalPos;
+        // Color.A stores the intensity value from the source point cloud
         FColor   Color;
         ULidarPointCloud* SourceCloud;
     };
@@ -320,6 +321,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
                     Existing.Color.R = (Existing.Color.R + P.Color.R) / 2;
                     Existing.Color.G = (Existing.Color.G + P.Color.G) / 2;
                     Existing.Color.B = (Existing.Color.B + P.Color.B) / 2;
+                    Existing.Color.A = (Existing.Color.A + P.Color.A) / 2;
                     bMerged = true;
                     break;
                 }
@@ -374,9 +376,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         }
 
         const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
-        Lines[Index] = FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
+        Lines[Index] = FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d %d"),
                 UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,
-                Rec.Color.R, Rec.Color.G, Rec.Color.B);
+                Rec.Color.R, Rec.Color.G, Rec.Color.B, Rec.Color.A);
 #if WITH_EDITOR
         if (bExportTexture)
         {
