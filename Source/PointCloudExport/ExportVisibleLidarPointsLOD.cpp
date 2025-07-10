@@ -5,6 +5,8 @@
 #include "Camera/CameraComponent.h"
 #include "Runtime/Engine/Classes/Engine/EngineTypes.h"
 #include "Math/Vector.h"
+#include "Math/Box.h"
+#include "Async/ParallelFor.h"
 #include "Math/Plane.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
@@ -87,6 +89,110 @@ static void BuildFrustumFromCamera(const UCameraComponent* Camera, FConvexVolume
     }
 #endif
 }
+
+namespace
+{
+    struct FSimpleOctreeNode
+    {
+        FBox Bounds;
+        TArray<int32> Indices;
+        FSimpleOctreeNode* Children[8]{ nullptr };
+
+        explicit FSimpleOctreeNode(const FBox& InBounds) : Bounds(InBounds)
+        {
+            for (int32 i = 0; i < 8; ++i) { Children[i] = nullptr; }
+        }
+        ~FSimpleOctreeNode()
+        {
+            for (int32 i = 0; i < 8; ++i) { if (Children[i]) delete Children[i]; }
+        }
+        bool IsLeaf() const { return Children[0] == nullptr; }
+    };
+
+    class FSimpleOctree
+    {
+        FSimpleOctreeNode* Root;
+        float MinSize;
+
+        static bool BoxSphereOverlap(const FBox& B, const FVector& C, float RadiusSq)
+        {
+            float DistSq = 0.f;
+            if (C.X < B.Min.X) DistSq += FMath::Square(C.X - B.Min.X); else if (C.X > B.Max.X) DistSq += FMath::Square(C.X - B.Max.X);
+            if (C.Y < B.Min.Y) DistSq += FMath::Square(C.Y - B.Min.Y); else if (C.Y > B.Max.Y) DistSq += FMath::Square(C.Y - B.Max.Y);
+            if (C.Z < B.Min.Z) DistSq += FMath::Square(C.Z - B.Min.Z); else if (C.Z > B.Max.Z) DistSq += FMath::Square(C.Z - B.Max.Z);
+            return DistSq <= RadiusSq;
+        }
+
+        static void Subdivide(FSimpleOctreeNode* Node)
+        {
+            const FVector C = Node->Bounds.GetCenter();
+            const FVector Ext = Node->Bounds.GetExtent() * 0.5f;
+            for (int32 i = 0; i < 8; ++i)
+            {
+                const FVector ChildCenter = C + FVector((i & 1 ? 1.f : -1.f) * Ext.X,
+                                                         (i & 2 ? 1.f : -1.f) * Ext.Y,
+                                                         (i & 4 ? 1.f : -1.f) * Ext.Z);
+                const FVector Min = ChildCenter - Ext;
+                const FVector Max = ChildCenter + Ext;
+                Node->Children[i] = new FSimpleOctreeNode(FBox(Min, Max));
+            }
+        }
+
+        void InsertInternal(FSimpleOctreeNode* Node, const FVector& P, int32 Index)
+        {
+            if (Node->Bounds.GetExtent().GetMax() * 2.f <= MinSize)
+            {
+                Node->Indices.Add(Index);
+                return;
+            }
+            if (Node->IsLeaf())
+            {
+                Subdivide(Node);
+            }
+            for (int32 i = 0; i < 8; ++i)
+            {
+                if (Node->Children[i]->Bounds.IsInside(P))
+                {
+                    InsertInternal(Node->Children[i], P, Index);
+                    return;
+                }
+            }
+            Node->Indices.Add(Index);
+        }
+
+        void QueryInternal(FSimpleOctreeNode* Node, const FVector& C, float RadiusSq, TArray<int32>& Out) const
+        {
+            if (!BoxSphereOverlap(Node->Bounds, C, RadiusSq))
+            {
+                return;
+            }
+            Out.Append(Node->Indices);
+            if (Node->IsLeaf()) return;
+            for (int32 i = 0; i < 8; ++i)
+            {
+                if (Node->Children[i])
+                {
+                    QueryInternal(Node->Children[i], C, RadiusSq, Out);
+                }
+            }
+        }
+
+    public:
+        FSimpleOctree(const FBox& InBounds, float InMinSize)
+            : Root(new FSimpleOctreeNode(InBounds)), MinSize(InMinSize) {}
+        ~FSimpleOctree() { delete Root; }
+
+        void Insert(const FVector& P, int32 Index) { InsertInternal(Root, P, Index); }
+        void Query(const FVector& Center, float Radius, TArray<int32>& Out) const
+        {
+            QueryInternal(Root, Center, Radius * Radius, Out);
+        }
+    };
+}
+
+// ------------------------------------------------------------
+//  メイン関数: 点群エクスポート
+// ------------------------------------------------------------
 
 // ------------------------------------------------------------
 //  メイン関数: 点群エクスポート
@@ -194,13 +300,24 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     if (MergeDistance > 0.f)
     {
         const float MergeDistSq = MergeDistance * MergeDistance;
+        FBox Bounds(EForceInit::ForceInit);
         for (const FPointRec& P : AllPoints)
         {
+            Bounds += P.WorldPos;
+        }
+        Bounds = Bounds.ExpandBy(MergeDistance);
+
+        FSimpleOctree Octree(Bounds, MergeDistance);
+        for (const FPointRec& P : AllPoints)
+        {
+            TArray<int32> Nearby;
+            Octree.Query(P.WorldPos, MergeDistance, Nearby);
             bool bMerged = false;
-            for (FPointRec& Existing : PointsToProcess)
+            for (int32 Idx : Nearby)
             {
-                if (FVector::DistSquared(Existing.WorldPos, P.WorldPos) <= MergeDistSq)
+                if (FVector::DistSquared(PointsToProcess[Idx].WorldPos, P.WorldPos) <= MergeDistSq)
                 {
+                    FPointRec& Existing = PointsToProcess[Idx];
                     Existing.WorldPos = (Existing.WorldPos + P.WorldPos) * 0.5f;
                     Existing.LocalPos = (Existing.LocalPos + P.LocalPos) * 0.5f;
                     Existing.Color.R = (Existing.Color.R + P.Color.R) / 2;
@@ -212,7 +329,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             }
             if (!bMerged)
             {
-                PointsToProcess.Add(P);
+                int32 NewIdx = PointsToProcess.Add(P);
+                Octree.Insert(P.WorldPos, NewIdx);
             }
         }
     }
@@ -224,20 +342,20 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     const FVector CamLoc = Camera->GetComponentLocation();
 
     TArray<FString> Lines;
-    Lines.Reserve(PointsToProcess.Num());
+    Lines.SetNum(PointsToProcess.Num());
 #if WITH_EDITOR
     TArray<FLinearColor> PosBuffer;
     TArray<FColor> ColorBuffer;
     if (bExportTexture)
     {
-        PosBuffer.Reserve(PointsToProcess.Num());
-        ColorBuffer.Reserve(PointsToProcess.Num());
+        PosBuffer.SetNum(PointsToProcess.Num());
+        ColorBuffer.SetNum(PointsToProcess.Num());
     }
 #endif
 
-    int32 SampleCounter = 0;
-    for (const FPointRec& Rec : PointsToProcess)
+    ParallelFor(PointsToProcess.Num(), [&](int32 Index)
     {
+        const FPointRec& Rec = PointsToProcess[Index];
         float Dist = FVector::Dist(Rec.WorldPos, CamLoc);
         float Skip = 1.0f;
 
@@ -253,22 +371,59 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             Skip = FMath::Lerp(1.0f, (float)SkipFactorMid, t);
         }
 
-        ++SampleCounter;
-        if (FMath::Fmod((float)SampleCounter, Skip) >= 1.0f) continue;
+        if (FMath::Fmod((float)(Index + 1), Skip) >= 1.0f)
+        {
+            return;
+        }
 
         const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
-        Lines.Emplace(
-            FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
+        Lines[Index] = FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
                 UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,
-                Rec.Color.R, Rec.Color.G, Rec.Color.B));
+                Rec.Color.R, Rec.Color.G, Rec.Color.B);
 #if WITH_EDITOR
         if (bExportTexture)
         {
-            PosBuffer.Add(FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f));
-            ColorBuffer.Add(FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, 255));
+            PosBuffer[Index] = FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f);
+            ColorBuffer[Index] = FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, 255);
         }
 #endif
+    });
+
+    TArray<FString> FinalLines;
+    FinalLines.Reserve(PointsToProcess.Num());
+#if WITH_EDITOR
+    TArray<FLinearColor> FinalPos;
+    TArray<FColor> FinalColor;
+    if (bExportTexture)
+    {
+        FinalPos.Reserve(PointsToProcess.Num());
+        FinalColor.Reserve(PointsToProcess.Num());
     }
+#endif
+
+    for (int32 i = 0; i < Lines.Num(); ++i)
+    {
+        if (!Lines[i].IsEmpty())
+        {
+            FinalLines.Add(Lines[i]);
+#if WITH_EDITOR
+            if (bExportTexture)
+            {
+                FinalPos.Add(PosBuffer[i]);
+                FinalColor.Add(ColorBuffer[i]);
+            }
+#endif
+        }
+    }
+
+    Lines = MoveTemp(FinalLines);
+#if WITH_EDITOR
+    if (bExportTexture)
+    {
+        PosBuffer = MoveTemp(FinalPos);
+        ColorBuffer = MoveTemp(FinalColor);
+    }
+#endif
 
     if (Lines.Num() == 0)
     {

@@ -22,6 +22,7 @@ Outputting LOD-Processed Point Clouds from a Camera Frustum
 1. Open the project and load `Content/LiDAR-Test/L_Test.umap`.
 2. The `BP_Test` blueprint calls `ExportVisiblePointsLOD` with an array of `LidarPointCloudActor` references and its `CameraComponent`. The visible portions of all clouds are merged and exported to `output.txt`.
 3. An optional `MergeDistance` parameter merges nearby points before applying LOD. Set to `0` to disable merging.
+4. Merging now uses an octree and the LOD step runs in parallel for faster processing.
 
 ## Example Output
 `docs/example_output.txt` shows a sample of the exported data. Each line follows the format `X Y Z R G B` in meters.
