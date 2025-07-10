@@ -2,11 +2,16 @@
 
 Developed with Unreal Engine 5
 
-PointCloudExport is a plugin and sample project for Unreal Engine 5. It allows you to export only the visible points of a Lidar PointCloud to a text file while applying LOD reduction.
+PointCloudExport is a plugin and sample project for Unreal Engine 5. It exports the visible points from one or more `LidarPointCloudActor`s to a text file. Nearby points can be merged before applying LOD reduction.
 
 | ![FullPointCloud](https://github.com/user-attachments/assets/88b9548c-3679-49fa-8877-03193212590a) | ![ExportedPointCloudLOD](https://github.com/user-attachments/assets/7cbf0fee-59da-4f15-b43b-93b4876c56cf) |
 | -- | -- |
 | 1,000,000 points | 99,497 points |
+
+## Features
+- Export visible points from multiple `LidarPointCloudActor` instances
+- Optional merging of nearby points before LOD reduction
+- Output LOD-processed point clouds from a camera frustum
 
 Outputting LOD-Processed Point Clouds from a Camera Frustum
 
