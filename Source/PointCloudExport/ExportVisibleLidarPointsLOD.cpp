@@ -378,7 +378,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
         Lines[Index] = FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d %d"),
                 UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,
-                Rec.Color.R, Rec.Color.G, Rec.Color.B, Rec.Color.A);
+                Rec.Color.A, Rec.Color.R, Rec.Color.G, Rec.Color.B);
 #if WITH_EDITOR
         if (bExportTexture)
         {
