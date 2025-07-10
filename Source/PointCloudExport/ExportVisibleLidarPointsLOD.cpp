@@ -75,6 +75,8 @@ static void BuildFrustumFromCamera(const UCameraComponent* Camera, FConvexVolume
     OutFrustum.Planes.Add(FPlane(NTl, FTl, FTr)); // Top
     OutFrustum.Planes.Add(FPlane(NBl, NBr, FBr)); // Bottom
 
+    OutFrustum.Init();
+
 #if !(UE_BUILD_SHIPPING)
     UE_LOG(LogTemp, Log, TEXT("Manual Frustum Planes (No Flip):"));
     for (int32 i = 0; i < OutFrustum.Planes.Num(); ++i)
@@ -249,12 +251,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
         ++SampleCounter;
         if (FMath::Fmod((float)SampleCounter, Skip) >= 1.0f) continue;
-        // Frustum was transformed into the point cloud's local space, so use the
-        // local coordinates for the final frustum check as well.
-        if (IsPointInFrustum(FVector(P->Location), Frustum) == false)
-        {
-            continue; // 視錐台外の点はスキップ
-        }
+
         const FVector LocalPos = FVector(P->Location);
         const FVector UsePos = (bWorldSpace ? PosWS : LocalPos);
         Lines.Emplace(
