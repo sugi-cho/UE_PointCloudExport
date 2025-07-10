@@ -11,7 +11,7 @@ class UCameraComponent;
 class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
  *
  * 生成されるファイル: 1 行 1 点の ASCII
- *   X Y Z R G B A
+ *   X Y Z Intensity R G B
  * 単位: メートル (Unreal ワールド座標を m へ変換)
  */
 UCLASS()

@@ -30,13 +30,13 @@ Outputting LOD-Processed Point Clouds from a Camera Frustum
 4. Merging now uses an octree and the LOD step runs in parallel for faster processing.
 
 ## Example Output
-`docs/example_output.txt` shows a sample of the exported data. Each line follows the format `X Y Z R G B A` where `A` is the intensity value from the point cloud, measured in meters.
+`docs/example_output.txt` shows a sample of the exported data. Each line follows the format `X Y Z Intensity R G B` where `Intensity` is measured in meters.
 
-| X | Y | Z | R | G | B | A |
+| X | Y | Z | Intensity | R | G | B |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0.123456 | -1.234567 | 1.234567 | 255 | 127 | 0 | 64 |
-| -1.23456 | -0.345678 | 2.345678 | 0 | 255 | 127 | 128 |
-| 0.456789 | 0.3456789 | 0.123456 | 127 | 0 | 255 | 200 |
+| 0.123456 | -1.234567 | 1.234567 | 64 | 255 | 127 | 0 |
+| -1.23456 | -0.345678 | 2.345678 | 128 | 0 | 255 | 127 |
+| 0.456789 | 0.3456789 | 0.123456 | 200 | 127 | 0 | 255 |
 
 ![image](https://github.com/user-attachments/assets/20b55dfb-8459-4b8d-96ff-9db1ad6f79fd)
 
