@@ -527,7 +527,9 @@ TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActo
             continue;
         }
 
-        FBoxSphereBounds Bounds = Comp->CalcBounds(Comp->GetComponentTransform());
+        // Use the actor's component bounds instead of the private CalcBounds API
+        FBox BoundsBox = Actor->GetComponentsBoundingBox(true);
+        FBoxSphereBounds Bounds(BoundsBox);
         if (WorldFrustum.IntersectBox(Bounds.Origin, Bounds.BoxExtent))
         {
             Result.Add(Actor);
