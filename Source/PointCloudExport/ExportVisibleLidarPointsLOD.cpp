@@ -92,7 +92,7 @@ static void BuildFrustumFromCamera(const UCameraComponent* Camera, FConvexVolume
 //  メイン関数: 点群エクスポート
 // ------------------------------------------------------------
 bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
-    ALidarPointCloudActor* PointCloudActor,
+    const TArray<ALidarPointCloudActor*>& PointCloudActors,
     UCameraComponent* Camera,
     const FString& AbsoluteFilePath,
     float FrustumFar,
@@ -102,9 +102,10 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     int32 SkipFactorMid,
     int32 SkipFactorFar,
     bool bWorldSpace,
-    bool bExportTexture)
+    bool bExportTexture,
+    float MergeDistance)
 {
-    if (!PointCloudActor || !Camera)
+    if (PointCloudActors.Num() == 0 || !Camera)
     {
         UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: Invalid input."));
         return false;
@@ -136,91 +137,108 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
-    ULidarPointCloudComponent* Comp = PointCloudActor->GetPointCloudComponent();
-    ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
-    if (!Cloud)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: No point cloud set."));
-        return false;
-    }
-
     // 1) 視錐台フィルタリング
-    FConvexVolume Frustum;
-    BuildFrustumFromCamera(Camera, Frustum, FrustumFar);
+    FConvexVolume WorldFrustum;
+    BuildFrustumFromCamera(Camera, WorldFrustum, FrustumFar);
 
-#if !(UE_BUILD_SHIPPING)
-    const FTransform& CloudTransform = Comp->GetComponentTransform();
-    UE_LOG(LogTemp, Log,
-        TEXT("Cloud Transform: Loc=%s Rot=%s Scale=%s"),
-        *CloudTransform.GetLocation().ToString(),
-        *CloudTransform.GetRotation().Rotator().ToString(),
-        *CloudTransform.GetScale3D().ToString());
-
-#endif
-
-    // ワールド→点群ローカル変換行列
-    const FMatrix WorldToCloud = Comp->GetComponentTransform().ToMatrixWithScale().Inverse();
-#if !(UE_BUILD_SHIPPING)
-    UE_LOG(LogTemp, Log, TEXT("WorldToCloud matrix:\n%s"), *WorldToCloud.ToString());
-#endif
-
-    // 平面をローカル空間に変換
-    for (int32 i = 0; i < Frustum.Planes.Num(); ++i)
+    struct FPointRec
     {
-        FPlane& Plane = Frustum.Planes[i];
-        Plane = Plane.TransformBy(WorldToCloud);
-        Plane.Normalize();
-#if !(UE_BUILD_SHIPPING)
-        UE_LOG(LogTemp, Log,
-            TEXT("Frustum Plane[%d] (post-transform): Normal=(%.3f, %.3f, %.3f) W=%.3f"),
-            i, Plane.X, Plane.Y, Plane.Z, Plane.W);
-#endif
+        FVector WorldPos;
+        FVector LocalPos;
+        FColor   Color;
+        ULidarPointCloud* SourceCloud;
+    };
+
+    TArray<FPointRec> AllPoints;
+    ULidarPointCloud* FirstCloud = nullptr;
+
+    for (ALidarPointCloudActor* Actor : PointCloudActors)
+    {
+        if (!Actor) continue;
+        ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
+        ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
+        if (!Cloud) continue;
+
+        if (!FirstCloud) FirstCloud = Cloud;
+
+        FConvexVolume LocalFrustum = WorldFrustum;
+        const FMatrix WorldToCloud = Comp->GetComponentTransform().ToMatrixWithScale().Inverse();
+        for (FPlane& Plane : LocalFrustum.Planes)
+        {
+            Plane = Plane.TransformBy(WorldToCloud);
+            Plane.Normalize();
+        }
+
+        TArray64<FLidarPointCloudPoint*> VisiblePts;
+        Cloud->GetPointsInConvexVolume(VisiblePts, LocalFrustum, /*bVisibleOnly=*/true);
+
+        const FTransform& CloudToWorld = Comp->GetComponentTransform();
+        for (const auto* P : VisiblePts)
+        {
+            FPointRec Rec;
+            Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location));
+            Rec.LocalPos = FVector(P->Location);
+            Rec.Color = P->Color;
+            Rec.SourceCloud = Cloud;
+            AllPoints.Add(Rec);
+        }
     }
 
-    // 視錐台内の点群取得
-    TArray64<FLidarPointCloudPoint*> VisiblePts;
-    Cloud->GetPointsInConvexVolume(VisiblePts, Frustum, /*bVisibleOnly=*/true);
-#if !(UE_BUILD_SHIPPING)
-    UE_LOG(LogTemp, Log,
-        TEXT("ExportVisiblePointsLOD: %lld points in frustum"), VisiblePts.Num());
-#endif
-    if (VisiblePts.Num() == 0)
+    if (AllPoints.Num() == 0)
     {
         UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: No points in frustum."));
         return false;
     }
 
-    // 2) 距離ベースの簡易LOD
+    TArray<FPointRec> PointsToProcess;
+    if (MergeDistance > 0.f)
+    {
+        const float MergeDistSq = MergeDistance * MergeDistance;
+        for (const FPointRec& P : AllPoints)
+        {
+            bool bMerged = false;
+            for (FPointRec& Existing : PointsToProcess)
+            {
+                if (FVector::DistSquared(Existing.WorldPos, P.WorldPos) <= MergeDistSq)
+                {
+                    Existing.WorldPos = (Existing.WorldPos + P.WorldPos) * 0.5f;
+                    Existing.LocalPos = (Existing.LocalPos + P.LocalPos) * 0.5f;
+                    Existing.Color.R = (Existing.Color.R + P.Color.R) / 2;
+                    Existing.Color.G = (Existing.Color.G + P.Color.G) / 2;
+                    Existing.Color.B = (Existing.Color.B + P.Color.B) / 2;
+                    bMerged = true;
+                    break;
+                }
+            }
+            if (!bMerged)
+            {
+                PointsToProcess.Add(P);
+            }
+        }
+    }
+    else
+    {
+        PointsToProcess = AllPoints;
+    }
+
     const FVector CamLoc = Camera->GetComponentLocation();
 
-    const FTransform& CloudToWorld = Comp->GetComponentTransform();
     TArray<FString> Lines;
-    Lines.Reserve(VisiblePts.Num());
+    Lines.Reserve(PointsToProcess.Num());
 #if WITH_EDITOR
     TArray<FLinearColor> PosBuffer;
     TArray<FColor> ColorBuffer;
     if (bExportTexture)
     {
-        PosBuffer.Reserve(VisiblePts.Num());
-        ColorBuffer.Reserve(VisiblePts.Num());
-    }
-#endif
-
-#if !(UE_BUILD_SHIPPING)
-    const int32 CheckCount = FMath::Min<int32>(10, VisiblePts.Num());
-    for (int32 idx = 0; idx < CheckCount; ++idx)
-    {
-        const auto* P = VisiblePts[idx];
-        UE_LOG(LogTemp, Verbose,
-            TEXT("Pt[%d]: LocalPos=%s"), idx, *P->Location.ToString());
+        PosBuffer.Reserve(PointsToProcess.Num());
+        ColorBuffer.Reserve(PointsToProcess.Num());
     }
 #endif
 
     int32 SampleCounter = 0;
-    for (const auto* P : VisiblePts)
+    for (const FPointRec& Rec : PointsToProcess)
     {
-        const FVector PosWS = CloudToWorld.TransformPosition(FVector(P->Location));
-        float Dist = FVector::Dist(PosWS, CamLoc);
+        float Dist = FVector::Dist(Rec.WorldPos, CamLoc);
         float Skip = 1.0f;
 
         if (Dist > FarSkipRadius) {
@@ -234,22 +252,20 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             float t = (Dist - NearFullResRadius) / (MidSkipRadius - NearFullResRadius);
             Skip = FMath::Lerp(1.0f, (float)SkipFactorMid, t);
         }
-        // else: Skip = 1.0f
 
         ++SampleCounter;
         if (FMath::Fmod((float)SampleCounter, Skip) >= 1.0f) continue;
 
-        const FVector LocalPos = FVector(P->Location);
-        const FVector UsePos = (bWorldSpace ? PosWS : LocalPos);
+        const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
         Lines.Emplace(
             FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d"),
-                UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,//点群.txt形式は、デフォルトでメートル単位、Y軸を反転
-                P->Color.R, P->Color.G, P->Color.B));
+                UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,
+                Rec.Color.R, Rec.Color.G, Rec.Color.B));
 #if WITH_EDITOR
         if (bExportTexture)
         {
             PosBuffer.Add(FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f));
-            ColorBuffer.Add(FColor(P->Color.R, P->Color.G, P->Color.B, 255));
+            ColorBuffer.Add(FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, 255));
         }
 #endif
     }
@@ -260,13 +276,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
-#if !(UE_BUILD_SHIPPING)
-    UE_LOG(LogTemp, Log,
-        TEXT("ExportVisiblePointsLOD: %d of %lld points after LOD"),
-        Lines.Num(), VisiblePts.Num());
-#endif
-
-    // 3) ファイル書き出し
     const FString Joined = FString::Join(Lines, TEXT("\n")) + TEXT("\n");
     if (!FFileHelper::SaveStringToFile(
         Joined, *AbsoluteFilePath,
@@ -280,7 +289,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
 #if WITH_EDITOR
     const int32 PointCount = Lines.Num();
-    if (bExportTexture && PosBuffer.Num() == PointCount && ColorBuffer.Num() == PointCount)
+    if (bExportTexture && PosBuffer.Num() == PointCount && ColorBuffer.Num() == PointCount && FirstCloud)
     {
         const int32 TexDim = FMath::CeilToInt(FMath::Sqrt((float)PointCount));
         TArray<FFloat16Color> PosPixels;
@@ -295,9 +304,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             PosPixels[Idx] = FFloat16Color(PosBuffer[i]);
             ColorPixels[Idx] = ColorBuffer[i];
         }
-        const FString CloudPackage = Cloud->GetOutermost()->GetName();
+        const FString CloudPackage = FirstCloud->GetOutermost()->GetName();
         const FString FolderPath = FPackageName::GetLongPackagePath(CloudPackage);
-        const FString BaseName = Cloud->GetName();
+        const FString BaseName = FirstCloud->GetName();
 
         const FString PosTexPackageName = MakeUniquePackageName(FolderPath, BaseName + TEXT("_PosTex"));
         UPackage* PosPackage = CreatePackage(*PosTexPackageName);
@@ -326,7 +335,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 #endif
 
     UE_LOG(LogTemp, Log,
-        TEXT("ExportVisiblePointsLOD: Wrote %d of %lld points → %s"),
-        Lines.Num(), VisiblePts.Num(), *AbsoluteFilePath);
+        TEXT("ExportVisiblePointsLOD: Wrote %d points → %s"),
+        Lines.Num(), *AbsoluteFilePath);
     return true;
 }
