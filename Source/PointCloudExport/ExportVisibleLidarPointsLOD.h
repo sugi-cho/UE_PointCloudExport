@@ -23,7 +23,7 @@ class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
 public:
 
     /**
-     * @param PointCloudActor     対象となる LidarPointCloudActor
+     * @param PointCloudActors    対象となる LidarPointCloudActor 配列
      * @param Camera              参照するカメラコンポーネント
      * @param AbsoluteFilePath    例: "C:/Temp/VisiblePoints.txt"
      * @param FrustumFar          視錐台の Far 値                  [cm]
@@ -34,11 +34,12 @@ public:
      * @param SkipFactorFar       最遠距離帯でのサンプリング間隔
      * @param bWorldSpace         true: ワールド座標 / false: 点群ローカル
      * @param bExportTexture      位置/色テクスチャを UAsset として保存
+     * @param MergeDistance       この距離以内の点をマージ (0 なら無効)
      * @return                    成功可否
      */
     UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
     static bool ExportVisiblePointsLOD(
-        ALidarPointCloudActor* PointCloudActor,
+        const TArray<ALidarPointCloudActor*>& PointCloudActors,
         UCameraComponent*      Camera,
         const FString& AbsoluteFilePath,
         float                  FrustumFar = 10000.f,
@@ -48,6 +49,7 @@ public:
         int32                  SkipFactorMid = 2,
         int32                  SkipFactorFar = 10,
         bool                   bWorldSpace = true,
-        bool                   bExportTexture = false
+        bool                   bExportTexture = false,
+        float                  MergeDistance = 0.f
     );
 };
