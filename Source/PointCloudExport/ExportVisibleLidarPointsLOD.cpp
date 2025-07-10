@@ -381,7 +381,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         if (bExportTexture)
         {
             PosBuffer[Index] = FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f);
-            ColorBuffer[Index] = FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, 255);
+            // Preserve the original alpha channel which stores point intensity
+            ColorBuffer[Index] = FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, Rec.Color.A);
         }
 #endif
     });

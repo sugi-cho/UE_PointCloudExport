@@ -41,7 +41,7 @@ Outputting LOD-Processed Point Clouds from a Camera Frustum
 ![image](https://github.com/user-attachments/assets/20b55dfb-8459-4b8d-96ff-9db1ad6f79fd)
 
 ## HDR Texture Export
-`ExportVisiblePointsLOD` can optionally save two UAssets: an HDR texture encoding point positions in RGB, and a color texture storing only the point colors. Set `bExportTexture` to `true` to generate these textures in the same folder as the original LidarPointCloudAsset. The textures are stored in an NxN square layout. Unused pixels are written as RGBA=0. If a UAsset with the same name already exists, a numbered suffix like `_1` is appended.
+`ExportVisiblePointsLOD` can optionally save two UAssets: an HDR texture encoding point positions in RGB, and a color texture storing the point colors. The alpha channel of the color texture now contains the intensity value from the point cloud. Set `bExportTexture` to `true` to generate these textures in the same folder as the original LidarPointCloudAsset. The textures are stored in an NxN square layout. Unused pixels are written as RGBA=0. If a UAsset with the same name already exists, a numbered suffix like `_1` is appended.
 
 | Position Texture | Color Texture |
 | --- | --- |
