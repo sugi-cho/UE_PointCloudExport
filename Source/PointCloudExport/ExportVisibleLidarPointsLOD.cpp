@@ -10,6 +10,7 @@
 #include "Math/Plane.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
+#include "EngineUtils.h"
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/Package.h"
@@ -489,4 +490,49 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         TEXT("ExportVisiblePointsLOD: Wrote %d points → %s"),
         Lines.Num(), *AbsoluteFilePath);
     return true;
+}
+
+// ------------------------------------------------------------
+//  指定カメラから見える LidarPointCloudActor を取得
+// ------------------------------------------------------------
+TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActors(
+    UCameraComponent* Camera,
+    float FrustumFar)
+{
+    TArray<ALidarPointCloudActor*> Result;
+    if (!Camera)
+    {
+        return Result;
+    }
+
+    UWorld* World = Camera->GetWorld();
+    if (!World)
+    {
+        return Result;
+    }
+
+    FConvexVolume WorldFrustum;
+    BuildFrustumFromCamera(Camera, WorldFrustum, FrustumFar);
+
+    for (TActorIterator<ALidarPointCloudActor> It(World); It; ++It)
+    {
+        ALidarPointCloudActor* Actor = *It;
+        if (!Actor)
+        {
+            continue;
+        }
+        ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
+        if (!Comp)
+        {
+            continue;
+        }
+
+        FBoxSphereBounds Bounds = Comp->CalcBounds(Comp->GetComponentTransform());
+        if (WorldFrustum.IntersectBox(Bounds.Origin, Bounds.BoxExtent))
+        {
+            Result.Add(Actor);
+        }
+    }
+
+    return Result;
 }
