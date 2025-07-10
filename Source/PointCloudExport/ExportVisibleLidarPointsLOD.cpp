@@ -88,25 +88,12 @@ static void BuildFrustumFromCamera(const UCameraComponent* Camera, FConvexVolume
 #endif
 }
 
-
-bool IsPointInFrustum(const FVector& Pt, const FConvexVolume& Frustum)
-{
-    for (const FPlane& Plane : Frustum.Planes)
-    {
-        if (Plane.PlaneDot(Pt) > 0.f) // 点が平面の外側にある
-        {
-            return false;
-        }
-    }
-    return true; // 全ての平面の内側にある
-}
-
 // ------------------------------------------------------------
 //  メイン関数: 点群エクスポート
 // ------------------------------------------------------------
 bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     ALidarPointCloudActor* PointCloudActor,
-    UCameraComponent*      Camera,
+    UCameraComponent* Camera,
     const FString& AbsoluteFilePath,
     float FrustumFar,
     float NearFullResRadius,
@@ -299,7 +286,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         TArray<FFloat16Color> PosPixels;
         TArray<FColor> ColorPixels;
         PosPixels.Init(FFloat16Color(FLinearColor::Transparent), TexDim * TexDim);
-        ColorPixels.Init(FColor(0,0,0,0), TexDim * TexDim);
+        ColorPixels.Init(FColor(0, 0, 0, 0), TexDim * TexDim);
         for (int32 i = 0; i < PointCount; ++i)
         {
             const int32 X = i % TexDim;
