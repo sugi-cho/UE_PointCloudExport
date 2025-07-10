@@ -38,10 +38,10 @@ public:
      * @return                    成功可否
      */
     UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
-    static bool ExportVisiblePointsLOD(
-        const TArray<ALidarPointCloudActor*>& PointCloudActors,
-        UCameraComponent*      Camera,
-        const FString& AbsoluteFilePath,
+      static bool ExportVisiblePointsLOD(
+          const TArray<ALidarPointCloudActor*>& PointCloudActors,
+          UCameraComponent*      Camera,
+          const FString& AbsoluteFilePath,
         float                  FrustumFar = 10000.f,
         float                  NearFullResRadius = 5000.f,
         float                  MidSkipRadius = 20000.f,
@@ -49,7 +49,20 @@ public:
         int32                  SkipFactorMid = 2,
         int32                  SkipFactorFar = 10,
         bool                   bWorldSpace = true,
-        bool                   bExportTexture = false,
-        float                  MergeDistance = 0.f
+          bool                   bExportTexture = false,
+          float                  MergeDistance = 0.f
+      );
+
+    /**
+     * カメラの視錐台に入っている LidarPointCloudActor を取得
+     *
+     * @param Camera     チェックするカメラコンポーネント
+     * @param FrustumFar 視錐台の Far 値 [cm]
+     * @return           視錐台に入るアクター配列
+     */
+    UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
+    static TArray<ALidarPointCloudActor*> GetVisibleLidarActors(
+        UCameraComponent* Camera,
+        float FrustumFar = 10000.f
     );
 };
