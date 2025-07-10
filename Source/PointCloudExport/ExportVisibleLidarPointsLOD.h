@@ -12,7 +12,7 @@ class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
  *
  * 生成されるファイル: 1 行 1 点の ASCII
  *   X Y Z R G B
- * 単位: Unreal ワールド座標系 (cm)
+ * 単位: メートル (Unreal ワールド座標を m へ変換)
  */
 UCLASS()
 class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
