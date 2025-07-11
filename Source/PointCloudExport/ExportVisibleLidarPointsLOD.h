@@ -56,14 +56,24 @@ public:
     /**
      * カメラの視錐台に入っている LidarPointCloudActor を取得
      *
-     * @param Camera     チェックするカメラコンポーネント
-     * @param FrustumFar 視錐台の Far 値 [cm]
-     * @return           視錐台に入るアクター配列
+     * @param Camera           チェックするカメラコンポーネント
+     * @param FrustumFar       視錐台の Far 値 [cm]
+     * @param NearFullResRadius   この距離以内は全点保持 [cm]
+     * @param MidSkipRadius       この距離を超えると SkipFactorMid で間引く [cm]
+     * @param FarSkipRadius       この距離を超えると SkipFactorFar で間引く [cm]
+     * @param SkipFactorMid       近距離～中距離でのサンプリング間隔
+     * @param SkipFactorFar       最遠距離帯でのサンプリング間隔
+     * @return                 視錐台に入るアクター配列
      */
     UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
     static TArray<ALidarPointCloudActor*> GetVisibleLidarActors(
         UCameraComponent* Camera,
-        float FrustumFar = 10000.f
+        float FrustumFar = 10000.f,
+        float NearFullResRadius = 5000.f,
+        float MidSkipRadius = 20000.f,
+        float FarSkipRadius = 100000.f,
+        int32 SkipFactorMid = 2,
+        int32 SkipFactorFar = 10
     );
 
     /**
