@@ -2,7 +2,7 @@
 
 Developed with Unreal Engine 5
 
-PointCloudExport is a plugin and sample project for Unreal Engine 5. It exports the visible points from one or more `LidarPointCloudActor`s to a text file. Nearby points can be merged before applying LOD reduction.
+PointCloudExport is a plugin and sample project for Unreal Engine 5. It exports the visible points from one or more `LidarPointCloudActor`s to a text file.
 
 | ![FullPointCloud](https://github.com/user-attachments/assets/88b9548c-3679-49fa-8877-03193212590a) | ![ExportedPointCloudLOD](https://github.com/user-attachments/assets/7cbf0fee-59da-4f15-b43b-93b4876c56cf) |
 | -- | -- |
@@ -10,7 +10,6 @@ PointCloudExport is a plugin and sample project for Unreal Engine 5. It exports 
 
 ## Features
 - Export visible points from multiple `LidarPointCloudActor` instances
-- Optional merging of nearby points before LOD reduction
 - Output LOD-processed point clouds from a camera frustum
 - Export position and color textures directly from a `LidarPointCloud` asset
 
@@ -26,9 +25,7 @@ Outputting LOD-Processed Point Clouds from a Camera Frustum
 
 ## Sample Scene
 1. Open the project and load `Content/LiDAR-Test/L_Test.umap`.
-2. The `BP_Test` blueprint calls `ExportVisiblePointsLOD` with an array of `LidarPointCloudActor` references and its `CameraComponent`. The visible portions of all clouds are merged and exported to `output.txt`.
-3. An optional `MergeDistance` parameter merges nearby points before applying LOD. Set to `0` to disable merging.
-4. Merging now uses an octree and the LOD step runs in parallel for faster processing.
+2. The `BP_Test` blueprint calls `ExportVisiblePointsLOD` with an array of `LidarPointCloudActor` references and its `CameraComponent`. The visible portions of all clouds are exported to `output.txt`.
 
 ## Example Output
 `docs/example_output.txt` shows a sample of the exported data. Each line follows the format `X Y Z Intensity R G B` where `Intensity` is measured in meters.

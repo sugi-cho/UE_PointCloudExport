@@ -34,7 +34,6 @@ public:
      * @param SkipFactorFar       最遠距離帯でのサンプリング間隔
      * @param bWorldSpace         true: ワールド座標 / false: 点群ローカル
      * @param bExportTexture      位置/色テクスチャを UAsset として保存
-     * @param MergeDistance       この距離以内の点を Octree 上でマージ (0 なら無効)
      * @return                    成功可否
      */
     UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
@@ -49,8 +48,7 @@ public:
         int32                  SkipFactorMid = 2,
         int32                  SkipFactorFar = 10,
         bool                   bWorldSpace = true,
-          bool                   bExportTexture = false,
-          float                  MergeDistance = 0.f
+          bool                   bExportTexture = false
       );
 
     /**
