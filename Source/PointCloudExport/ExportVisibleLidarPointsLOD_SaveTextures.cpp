@@ -4,6 +4,7 @@
 #include "LidarPointCloud.h"
 #include "SceneManagement.h"
 #include "Camera/CameraComponent.h"
+#include "PointCloudExportUtils.h"
 #include "Runtime/Engine/Classes/Engine/EngineTypes.h"
 #include "Math/Vector.h"
 #include "Math/Box.h"
@@ -19,21 +20,6 @@
 #include "Engine/Texture2D.h"
 #endif
 
-#if WITH_EDITOR
-// Return a package name that does not conflict with existing assets
-static FString MakeUniquePackageName(const FString& FolderPath, const FString& BaseName)
-{
-    FString PackageName = FolderPath / BaseName;
-    FString FileName = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
-    int32 Suffix = 1;
-    while (IFileManager::Get().FileExists(*FileName))
-    {
-        PackageName = FolderPath / FString::Printf(TEXT("%s_%d"), *BaseName, Suffix++);
-        FileName = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
-    }
-    return PackageName;
-}
-#endif
 // ------------------------------------------------------------
 //  LidarPointCloud からテクスチャを生成して保存
 // ------------------------------------------------------------
@@ -79,7 +65,7 @@ bool UExportVisibleLidarPointsLOD::SavePointCloudTextures(ULidarPointCloud* Poin
     const FString FolderPath = FPackageName::GetLongPackagePath(CloudPackage);
     const FString BaseName = PointCloud->GetName();
 
-    const FString PosTexPackageName = MakeUniquePackageName(FolderPath, BaseName + TEXT("_PosTex"));
+    const FString PosTexPackageName = PointCloudExportUtils::MakeUniquePackageName(FolderPath, BaseName + TEXT("_PosTex"));
     UPackage* PosPackage = CreatePackage(*PosTexPackageName);
     UTexture2D* PosTex = NewObject<UTexture2D>(PosPackage, *FPackageName::GetShortName(PosTexPackageName), RF_Public | RF_Standalone);
     PosTex->Source.Init(TexDim, TexDim, 1, 1, TSF_RGBA16F, (const uint8*)PosPixels.GetData());
@@ -91,7 +77,7 @@ bool UExportVisibleLidarPointsLOD::SavePointCloudTextures(ULidarPointCloud* Poin
     const FString PosFileName = FPackageName::LongPackageNameToFilename(PosTexPackageName, FPackageName::GetAssetPackageExtension());
     UPackage::SavePackage(PosPackage, PosTex, EObjectFlags::RF_Public | RF_Standalone, *PosFileName);
 
-    const FString ColorTexPackageName = MakeUniquePackageName(FolderPath, BaseName + TEXT("_ColorTex"));
+    const FString ColorTexPackageName = PointCloudExportUtils::MakeUniquePackageName(FolderPath, BaseName + TEXT("_ColorTex"));
     UPackage* ColorPackage = CreatePackage(*ColorTexPackageName);
     UTexture2D* ColorTex = NewObject<UTexture2D>(ColorPackage, *FPackageName::GetShortName(ColorTexPackageName), RF_Public | RF_Standalone);
     ColorTex->Source.Init(TexDim, TexDim, 1, 1, TSF_BGRA8, (const uint8*)ColorPixels.GetData());
