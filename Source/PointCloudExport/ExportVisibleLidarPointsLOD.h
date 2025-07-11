@@ -65,4 +65,14 @@ public:
         UCameraComponent* Camera,
         float FrustumFar = 10000.f
     );
+
+    /**
+     * 指定した LidarPointCloud アセットから位置/色テクスチャを生成して保存
+     * 元のアセットと同じフォルダに PosTex と ColorTex を作成する
+     *
+     * @param PointCloud   対象となる LidarPointCloud アセット
+     * @return             成功可否
+     */
+    UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
+    static bool SavePointCloudTextures(ULidarPointCloud* PointCloud);
 };

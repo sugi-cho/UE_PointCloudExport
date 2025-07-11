@@ -12,6 +12,7 @@ PointCloudExport is a plugin and sample project for Unreal Engine 5. It exports 
 - Export visible points from multiple `LidarPointCloudActor` instances
 - Optional merging of nearby points before LOD reduction
 - Output LOD-processed point clouds from a camera frustum
+- Export position and color textures directly from a `LidarPointCloud` asset
 
 Outputting LOD-Processed Point Clouds from a Camera Frustum
 
@@ -42,6 +43,8 @@ Outputting LOD-Processed Point Clouds from a Camera Frustum
 
 ## HDR Texture Export
 `ExportVisiblePointsLOD` can optionally save two UAssets: an HDR texture encoding point positions in RGB, and a color texture storing the point colors. The alpha channel of the color texture now contains the intensity value from the point cloud. Set `bExportTexture` to `true` to generate these textures in the same folder as the original LidarPointCloudAsset. The textures are stored in an NxN square layout. Unused pixels are written as RGBA=0. If a UAsset with the same name already exists, a numbered suffix like `_1` is appended.
+
+`SavePointCloudTextures` generates the same textures directly from a `LidarPointCloud` asset without any filtering.
 
 | Position Texture | Color Texture |
 | --- | --- |
