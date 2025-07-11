@@ -381,6 +381,18 @@ TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActo
     FConvexVolume WorldFrustum;
     BuildFrustumFromCamera(Camera, WorldFrustum, FrustumFar);
 
+    // Statistics: total points across visible actors and the estimated count
+    int64 TotalPointCount = 0;
+    int64 PredictedPointCount = 0;
+    const FVector CamLoc = Camera->GetComponentLocation();
+
+    // LOD parameters mirroring ExportVisiblePointsLOD defaults (units are cm)
+    const float NearFullResRadius = 5000.f;
+    const float MidSkipRadius    = 20000.f;
+    const float FarSkipRadius    = 100000.f;
+    const int32 SkipFactorMid    = 2;
+    const int32 SkipFactorFar    = 10;
+
     for (TActorIterator<ALidarPointCloudActor> It(World); It; ++It)
     {
         ALidarPointCloudActor* Actor = *It;
@@ -400,8 +412,54 @@ TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActo
         if (WorldFrustum.IntersectBox(Bounds.Origin, Bounds.BoxExtent))
         {
             Result.Add(Actor);
+
+            ULidarPointCloud* Cloud = Comp->GetPointCloud();
+            if (Cloud)
+            {
+                TArray64<FLidarPointCloudPoint*> Points;
+                Cloud->GetPoints(Points);
+                const int64 NumPoints = Points.Num();
+                TotalPointCount += NumPoints;
+
+                const FTransform& CloudToWorld = Comp->GetComponentTransform();
+                const FVector LocationOffset = Cloud->LocationOffset;
+
+                int64 LODCount = 0;
+                for (int64 Index = 0; Index < NumPoints; ++Index)
+                {
+                    const FLidarPointCloudPoint* P = Points[Index];
+                    const FVector WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
+                    const float Dist = FVector::Dist(WorldPos, CamLoc);
+
+                    float Skip = 1.f;
+                    if (Dist > FarSkipRadius)
+                    {
+                        Skip = (float)SkipFactorFar;
+                    }
+                    else if (Dist > MidSkipRadius)
+                    {
+                        const float t = (Dist - MidSkipRadius) / (FarSkipRadius - MidSkipRadius);
+                        Skip = FMath::Lerp((float)SkipFactorMid, (float)SkipFactorFar, t);
+                    }
+                    else if (Dist > NearFullResRadius)
+                    {
+                        const float t = (Dist - NearFullResRadius) / (MidSkipRadius - NearFullResRadius);
+                        Skip = FMath::Lerp(1.f, (float)SkipFactorMid, t);
+                    }
+
+                    if (FMath::Fmod((float)(Index + 1), Skip) < 1.f)
+                    {
+                        ++LODCount;
+                    }
+                }
+
+                PredictedPointCount += LODCount;
+            }
         }
     }
+
+    UE_LOG(LogTemp, Log, TEXT("GetVisibleLidarActors: Total Points = %lld, Estimated LOD Points = %lld"),
+        TotalPointCount, PredictedPointCount);
 
     return Result;
 }
