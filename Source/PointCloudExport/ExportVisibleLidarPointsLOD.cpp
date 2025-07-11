@@ -131,8 +131,8 @@ namespace
             for (int32 i = 0; i < 8; ++i)
             {
                 const FVector ChildCenter = C + FVector((i & 1 ? 1.f : -1.f) * Ext.X,
-                                                         (i & 2 ? 1.f : -1.f) * Ext.Y,
-                                                         (i & 4 ? 1.f : -1.f) * Ext.Z);
+                    (i & 2 ? 1.f : -1.f) * Ext.Y,
+                    (i & 4 ? 1.f : -1.f) * Ext.Z);
                 const FVector Min = ChildCenter - Ext;
                 const FVector Max = ChildCenter + Ext;
                 Node->Children[i] = new FSimpleOctreeNode(FBox(Min, Max));
@@ -180,7 +180,8 @@ namespace
 
     public:
         FSimpleOctree(const FBox& InBounds, float InMinSize)
-            : Root(new FSimpleOctreeNode(InBounds)), MinSize(InMinSize) {}
+            : Root(new FSimpleOctreeNode(InBounds)), MinSize(InMinSize) {
+        }
         ~FSimpleOctree() { delete Root; }
 
         void Insert(const FVector& P, int32 Index) { InsertInternal(Root, P, Index); }
@@ -267,11 +268,14 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
         FConvexVolume LocalFrustum = WorldFrustum;
         const FMatrix WorldToCloud = Comp->GetComponentTransform().ToMatrixWithScale().Inverse();
+        const FVector LocationOffset = Cloud->LocationOffset;
         for (FPlane& Plane : LocalFrustum.Planes)
         {
             Plane = Plane.TransformBy(WorldToCloud);
+            Plane = Plane.TransformBy(FTranslationMatrix(-LocationOffset));
             Plane.Normalize();
         }
+        LocalFrustum.Init();
 
         TArray64<FLidarPointCloudPoint*> VisiblePts;
         Cloud->GetPointsInConvexVolume(VisiblePts, LocalFrustum, /*bVisibleOnly=*/true);
@@ -280,8 +284,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         for (const auto* P : VisiblePts)
         {
             FPointRec Rec;
-            Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location));
-            Rec.LocalPos = FVector(P->Location);
+            Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
+            Rec.LocalPos = FVector(P->Location) + LocationOffset;
             Rec.Color = P->Color;
             Rec.SourceCloud = Cloud;
             AllPoints.Add(Rec);
@@ -353,41 +357,41 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 #endif
 
     ParallelFor(PointsToProcess.Num(), [&](int32 Index)
-    {
-        const FPointRec& Rec = PointsToProcess[Index];
-        float Dist = FVector::Dist(Rec.WorldPos, CamLoc);
-        float Skip = 1.0f;
-
-        if (Dist > FarSkipRadius) {
-            Skip = (float)SkipFactorFar;
-        }
-        else if (Dist > MidSkipRadius) {
-            float t = (Dist - MidSkipRadius) / (FarSkipRadius - MidSkipRadius);
-            Skip = FMath::Lerp((float)SkipFactorMid, (float)SkipFactorFar, t);
-        }
-        else if (Dist > NearFullResRadius) {
-            float t = (Dist - NearFullResRadius) / (MidSkipRadius - NearFullResRadius);
-            Skip = FMath::Lerp(1.0f, (float)SkipFactorMid, t);
-        }
-
-        if (FMath::Fmod((float)(Index + 1), Skip) >= 1.0f)
         {
-            return;
-        }
+            const FPointRec& Rec = PointsToProcess[Index];
+            float Dist = FVector::Dist(Rec.WorldPos, CamLoc);
+            float Skip = 1.0f;
 
-        const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
-        Lines[Index] = FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d %d"),
+            if (Dist > FarSkipRadius) {
+                Skip = (float)SkipFactorFar;
+            }
+            else if (Dist > MidSkipRadius) {
+                float t = (Dist - MidSkipRadius) / (FarSkipRadius - MidSkipRadius);
+                Skip = FMath::Lerp((float)SkipFactorMid, (float)SkipFactorFar, t);
+            }
+            else if (Dist > NearFullResRadius) {
+                float t = (Dist - NearFullResRadius) / (MidSkipRadius - NearFullResRadius);
+                Skip = FMath::Lerp(1.0f, (float)SkipFactorMid, t);
+            }
+
+            if (FMath::Fmod((float)(Index + 1), Skip) >= 1.0f)
+            {
+                return;
+            }
+
+            const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
+            Lines[Index] = FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d %d"),
                 UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,
                 Rec.Color.A, Rec.Color.R, Rec.Color.G, Rec.Color.B);
 #if WITH_EDITOR
-        if (bExportTexture)
-        {
-            PosBuffer[Index] = FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f);
-            // Preserve the original alpha channel which stores point intensity
-            ColorBuffer[Index] = FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, Rec.Color.A);
-        }
+            if (bExportTexture)
+            {
+                PosBuffer[Index] = FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f);
+                // Preserve the original alpha channel which stores point intensity
+                ColorBuffer[Index] = FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, Rec.Color.A);
+            }
 #endif
-    });
+        });
 
     TArray<FString> FinalLines;
     FinalLines.Reserve(PointsToProcess.Num());
