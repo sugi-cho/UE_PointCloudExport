@@ -576,7 +576,6 @@ bool UExportVisibleLidarPointsLOD::SavePointCloudTextures(ULidarPointCloud* Poin
     PosPixels.Init(FFloat16Color(FLinearColor::Transparent), TexDim * TexDim);
     ColorPixels.Init(FColor(0, 0, 0, 0), TexDim * TexDim);
 
-    const FVector Offset = PointCloud->LocationOffset;
     for (int32 i = 0; i < PointCount; ++i)
     {
         const int32 X = i % TexDim;
@@ -584,7 +583,7 @@ bool UExportVisibleLidarPointsLOD::SavePointCloudTextures(ULidarPointCloud* Poin
         const int32 Idx = Y * TexDim + X;
 
         const FLidarPointCloudPoint* P = Points[i];
-        FVector Pos = FVector(P->Location) + Offset;
+        FVector Pos = FVector(P->Location);
         PosPixels[Idx] = FFloat16Color(FLinearColor(Pos.X, Pos.Y, Pos.Z, 1.f));
         ColorPixels[Idx] = FColor(P->Color.R, P->Color.G, P->Color.B, P->Color.A);
     }
