@@ -208,7 +208,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     int32 SkipFactorFar,
     bool bWorldSpace,
     bool bExportTexture,
-    float MergeDistance)
+    float MergeDistance,
+    int32 MaxPointCount)
 {
     if (PointCloudActors.Num() == 0 || !Camera)
     {
@@ -258,8 +259,16 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     TArray<FPointRec> AllPoints;
     ULidarPointCloud* FirstCloud = nullptr;
 
+    const bool bUseLimit = MaxPointCount > 0;
+    bool bReachedLimit = false;
+
     for (ALidarPointCloudActor* Actor : PointCloudActors)
     {
+        if (bUseLimit && AllPoints.Num() >= MaxPointCount)
+        {
+            bReachedLimit = true;
+            break;
+        }
         if (!Actor) continue;
         ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
         ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
@@ -284,12 +293,21 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         const FTransform& CloudToWorld = Comp->GetComponentTransform();
         for (const auto* P : VisiblePts)
         {
+            if (bUseLimit && AllPoints.Num() >= MaxPointCount)
+            {
+                bReachedLimit = true;
+                break;
+            }
             FPointRec Rec;
             Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
             Rec.LocalPos = FVector(P->Location) + LocationOffset;
             Rec.Color = P->Color;
             Rec.SourceCloud = Cloud;
             AllPoints.Add(Rec);
+        }
+        if (bReachedLimit)
+        {
+            break;
         }
     }
 
@@ -313,6 +331,11 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         FSimpleOctree Octree(Bounds, MergeDistance);
         for (const FPointRec& P : AllPoints)
         {
+            if (bUseLimit && PointsToProcess.Num() >= MaxPointCount)
+            {
+                bReachedLimit = true;
+                break;
+            }
             TArray<int32> Nearby;
             Octree.Query(P.WorldPos, MergeDistance, Nearby);
             bool bMerged = false;
@@ -337,10 +360,22 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
                 Octree.Insert(P.WorldPos, NewIdx);
             }
         }
+        if (bReachedLimit)
+        {
+            // stop processing further points
+        }
+        if (bUseLimit && PointsToProcess.Num() > MaxPointCount)
+        {
+            PointsToProcess.SetNum(MaxPointCount);
+        }
     }
     else
     {
         PointsToProcess = AllPoints;
+        if (bUseLimit && PointsToProcess.Num() > MaxPointCount)
+        {
+            PointsToProcess.SetNum(MaxPointCount);
+        }
     }
 
     const FVector CamLoc = Camera->GetComponentLocation();
