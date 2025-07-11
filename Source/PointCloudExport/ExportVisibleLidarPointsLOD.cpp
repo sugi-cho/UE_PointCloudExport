@@ -92,106 +92,7 @@ static void BuildFrustumFromCamera(const UCameraComponent* Camera, FConvexVolume
 #endif
 }
 
-namespace
-{
-    struct FSimpleOctreeNode
-    {
-        FBox Bounds;
-        TArray<int32> Indices;
-        FSimpleOctreeNode* Children[8]{ nullptr };
 
-        explicit FSimpleOctreeNode(const FBox& InBounds) : Bounds(InBounds)
-        {
-            for (int32 i = 0; i < 8; ++i) { Children[i] = nullptr; }
-        }
-        ~FSimpleOctreeNode()
-        {
-            for (int32 i = 0; i < 8; ++i) { if (Children[i]) delete Children[i]; }
-        }
-        bool IsLeaf() const { return Children[0] == nullptr; }
-    };
-
-    class FSimpleOctree
-    {
-        FSimpleOctreeNode* Root;
-        float MinSize;
-
-        static bool BoxSphereOverlap(const FBox& B, const FVector& C, float RadiusSq)
-        {
-            float DistSq = 0.f;
-            if (C.X < B.Min.X) DistSq += FMath::Square(C.X - B.Min.X); else if (C.X > B.Max.X) DistSq += FMath::Square(C.X - B.Max.X);
-            if (C.Y < B.Min.Y) DistSq += FMath::Square(C.Y - B.Min.Y); else if (C.Y > B.Max.Y) DistSq += FMath::Square(C.Y - B.Max.Y);
-            if (C.Z < B.Min.Z) DistSq += FMath::Square(C.Z - B.Min.Z); else if (C.Z > B.Max.Z) DistSq += FMath::Square(C.Z - B.Max.Z);
-            return DistSq <= RadiusSq;
-        }
-
-        static void Subdivide(FSimpleOctreeNode* Node)
-        {
-            const FVector C = Node->Bounds.GetCenter();
-            const FVector Ext = Node->Bounds.GetExtent() * 0.5f;
-            for (int32 i = 0; i < 8; ++i)
-            {
-                const FVector ChildCenter = C + FVector((i & 1 ? 1.f : -1.f) * Ext.X,
-                    (i & 2 ? 1.f : -1.f) * Ext.Y,
-                    (i & 4 ? 1.f : -1.f) * Ext.Z);
-                const FVector Min = ChildCenter - Ext;
-                const FVector Max = ChildCenter + Ext;
-                Node->Children[i] = new FSimpleOctreeNode(FBox(Min, Max));
-            }
-        }
-
-        void InsertInternal(FSimpleOctreeNode* Node, const FVector& P, int32 Index)
-        {
-            if (Node->Bounds.GetExtent().GetMax() * 2.f <= MinSize)
-            {
-                Node->Indices.Add(Index);
-                return;
-            }
-            if (Node->IsLeaf())
-            {
-                Subdivide(Node);
-            }
-            for (int32 i = 0; i < 8; ++i)
-            {
-                if (Node->Children[i]->Bounds.IsInside(P))
-                {
-                    InsertInternal(Node->Children[i], P, Index);
-                    return;
-                }
-            }
-            Node->Indices.Add(Index);
-        }
-
-        void QueryInternal(FSimpleOctreeNode* Node, const FVector& C, float RadiusSq, TArray<int32>& Out) const
-        {
-            if (!BoxSphereOverlap(Node->Bounds, C, RadiusSq))
-            {
-                return;
-            }
-            Out.Append(Node->Indices);
-            if (Node->IsLeaf()) return;
-            for (int32 i = 0; i < 8; ++i)
-            {
-                if (Node->Children[i])
-                {
-                    QueryInternal(Node->Children[i], C, RadiusSq, Out);
-                }
-            }
-        }
-
-    public:
-        FSimpleOctree(const FBox& InBounds, float InMinSize)
-            : Root(new FSimpleOctreeNode(InBounds)), MinSize(InMinSize) {
-        }
-        ~FSimpleOctree() { delete Root; }
-
-        void Insert(const FVector& P, int32 Index) { InsertInternal(Root, P, Index); }
-        void Query(const FVector& Center, float Radius, TArray<int32>& Out) const
-        {
-            QueryInternal(Root, Center, Radius * Radius, Out);
-        }
-    };
-}
 
 // ------------------------------------------------------------
 //  メイン関数: 点群エクスポート
@@ -207,8 +108,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     int32 SkipFactorMid,
     int32 SkipFactorFar,
     bool bWorldSpace,
-    bool bExportTexture,
-    float MergeDistance)
+    bool bExportTexture)
 {
     if (PointCloudActors.Num() == 0 || !Camera)
     {
@@ -299,49 +199,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
-    TArray<FPointRec> PointsToProcess;
-    if (MergeDistance > 0.f)
-    {
-        const float MergeDistSq = MergeDistance * MergeDistance;
-        FBox Bounds(EForceInit::ForceInit);
-        for (const FPointRec& P : AllPoints)
-        {
-            Bounds += P.WorldPos;
-        }
-        Bounds = Bounds.ExpandBy(MergeDistance);
-
-        FSimpleOctree Octree(Bounds, MergeDistance);
-        for (const FPointRec& P : AllPoints)
-        {
-            TArray<int32> Nearby;
-            Octree.Query(P.WorldPos, MergeDistance, Nearby);
-            bool bMerged = false;
-            for (int32 Idx : Nearby)
-            {
-                if (FVector::DistSquared(PointsToProcess[Idx].WorldPos, P.WorldPos) <= MergeDistSq)
-                {
-                    FPointRec& Existing = PointsToProcess[Idx];
-                    Existing.WorldPos = (Existing.WorldPos + P.WorldPos) * 0.5f;
-                    Existing.LocalPos = (Existing.LocalPos + P.LocalPos) * 0.5f;
-                    Existing.Color.R = (Existing.Color.R + P.Color.R) / 2;
-                    Existing.Color.G = (Existing.Color.G + P.Color.G) / 2;
-                    Existing.Color.B = (Existing.Color.B + P.Color.B) / 2;
-                    Existing.Color.A = (Existing.Color.A + P.Color.A) / 2;
-                    bMerged = true;
-                    break;
-                }
-            }
-            if (!bMerged)
-            {
-                int32 NewIdx = PointsToProcess.Add(P);
-                Octree.Insert(P.WorldPos, NewIdx);
-            }
-        }
-    }
-    else
-    {
-        PointsToProcess = AllPoints;
-    }
+    // No merging step
+    TArray<FPointRec> PointsToProcess = AllPoints;
 
     const FVector CamLoc = Camera->GetComponentLocation();
 
