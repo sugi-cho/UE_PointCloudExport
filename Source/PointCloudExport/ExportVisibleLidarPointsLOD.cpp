@@ -9,6 +9,7 @@
 #include "Math/Plane.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "EngineUtils.h"
 #include "Async/Async.h"
 #if WITH_EDITOR
@@ -291,6 +292,17 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     {
         UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: All points skipped by LOD."));
         return false;
+    }
+
+    const FString DirectoryPath = FPaths::GetPath(AbsoluteFilePath);
+    if (!DirectoryPath.IsEmpty() && !IFileManager::Get().DirectoryExists(*DirectoryPath))
+    {
+        if (!IFileManager::Get().MakeDirectory(*DirectoryPath, true))
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("ExportVisiblePointsLOD: Failed to create directory %s"), *DirectoryPath);
+            return false;
+        }
     }
 
     const FString Joined = FString::Join(Lines, TEXT("\n")) + TEXT("\n");
