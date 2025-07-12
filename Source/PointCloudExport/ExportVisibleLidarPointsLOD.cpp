@@ -160,15 +160,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     ULidarPointCloud* FirstCloud = nullptr;
 
     const bool bUseLimit = MaxPointCount > 0;
-    bool bReachedLimit = false;
 
     for (ALidarPointCloudActor* Actor : PointCloudActors)
     {
-        if (bUseLimit && AllPoints.Num() >= MaxPointCount)
-        {
-            bReachedLimit = true;
-            break;
-        }
         if (!Actor) continue;
         ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
         ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
@@ -193,21 +187,12 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         const FTransform& CloudToWorld = Comp->GetComponentTransform();
         for (const auto* P : VisiblePts)
         {
-            if (bUseLimit && AllPoints.Num() >= MaxPointCount)
-            {
-                bReachedLimit = true;
-                break;
-            }
             FPointRec Rec;
             Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
             Rec.LocalPos = FVector(P->Location) + LocationOffset;
             Rec.Color = P->Color;
             Rec.SourceCloud = Cloud;
             AllPoints.Add(Rec);
-        }
-        if (bReachedLimit)
-        {
-            break;
         }
     }
 
@@ -222,90 +207,75 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     const FVector CamLoc = Camera->GetComponentLocation();
 
+    const int32 ReserveCount = bUseLimit
+        ? FMath::Min<int32>(PointsToProcess.Num(), MaxPointCount)
+        : PointsToProcess.Num();
     TArray<FString> Lines;
-    Lines.SetNum(PointsToProcess.Num());
+    Lines.Reserve(ReserveCount);
 #if WITH_EDITOR
     TArray<FLinearColor> PosBuffer;
     TArray<FColor> ColorBuffer;
     if (bExportTexture)
     {
-        PosBuffer.SetNum(PointsToProcess.Num());
-        ColorBuffer.SetNum(PointsToProcess.Num());
+        PosBuffer.Reserve(ReserveCount);
+        ColorBuffer.Reserve(ReserveCount);
     }
 #endif
 
-    ParallelFor(PointsToProcess.Num(), [&](int32 Index)
-        {
-            const FPointRec& Rec = PointsToProcess[Index];
-            float Dist = FVector::Dist(Rec.WorldPos, CamLoc);
-            float Skip = 1.0f;
-
-            if (Dist > FarSkipRadius) {
-                Skip = (float)SkipFactorFar;
-            }
-            else if (Dist > MidSkipRadius) {
-                float t = (Dist - MidSkipRadius) / (FarSkipRadius - MidSkipRadius);
-                Skip = FMath::Lerp((float)SkipFactorMid, (float)SkipFactorFar, t);
-            }
-            else if (Dist > NearFullResRadius) {
-                float t = (Dist - NearFullResRadius) / (MidSkipRadius - NearFullResRadius);
-                Skip = FMath::Lerp(1.0f, (float)SkipFactorMid, t);
-            }
-
-            if (FMath::Fmod((float)(Index + 1), Skip) >= 1.0f)
-            {
-                return;
-            }
-
-            const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
-            Lines[Index] = FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d %d"),
-                UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,
-                Rec.Color.A, Rec.Color.R, Rec.Color.G, Rec.Color.B);
-#if WITH_EDITOR
-            if (bExportTexture)
-            {
-                PosBuffer[Index] = FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f);
-                // Preserve the original alpha channel which stores point intensity
-                ColorBuffer[Index] = FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, Rec.Color.A);
-            }
-#endif
-        });
-
-    TArray<FString> FinalLines;
-    FinalLines.Reserve(PointsToProcess.Num());
-#if WITH_EDITOR
-    TArray<FLinearColor> FinalPos;
-    TArray<FColor> FinalColor;
-    if (bExportTexture)
+    for (int32 Index = 0; Index < PointsToProcess.Num(); ++Index)
     {
-        FinalPos.Reserve(PointsToProcess.Num());
-        FinalColor.Reserve(PointsToProcess.Num());
-    }
+        const FPointRec& Rec = PointsToProcess[Index];
+        float Dist = FVector::Dist(Rec.WorldPos, CamLoc);
+        float Skip = 1.0f;
+
+        if (Dist > FarSkipRadius) {
+            Skip = (float)SkipFactorFar;
+        }
+        else if (Dist > MidSkipRadius) {
+            float t = (Dist - MidSkipRadius) / (FarSkipRadius - MidSkipRadius);
+            Skip = FMath::Lerp((float)SkipFactorMid, (float)SkipFactorFar, t);
+        }
+        else if (Dist > NearFullResRadius) {
+            float t = (Dist - NearFullResRadius) / (MidSkipRadius - NearFullResRadius);
+            Skip = FMath::Lerp(1.0f, (float)SkipFactorMid, t);
+        }
+
+        if (FMath::Fmod((float)(Index + 1), Skip) >= 1.0f)
+        {
+            continue;
+        }
+
+        const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
+        Lines.Add(FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d %d"),
+            UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,
+            Rec.Color.A, Rec.Color.R, Rec.Color.G, Rec.Color.B));
+#if WITH_EDITOR
+        if (bExportTexture)
+        {
+            PosBuffer.Add(FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f));
+            // Preserve the original alpha channel which stores point intensity
+            ColorBuffer.Add(FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, Rec.Color.A));
+        }
 #endif
 
-    for (int32 i = 0; i < Lines.Num(); ++i)
-    {
-        if (!Lines[i].IsEmpty())
+        if (bUseLimit && Lines.Num() >= MaxPointCount)
         {
-            FinalLines.Add(Lines[i]);
-#if WITH_EDITOR
-            if (bExportTexture)
-            {
-                FinalPos.Add(PosBuffer[i]);
-                FinalColor.Add(ColorBuffer[i]);
-            }
-#endif
+            break;
         }
     }
 
-    Lines = MoveTemp(FinalLines);
-#if WITH_EDITOR
-    if (bExportTexture)
+
+    if (bUseLimit && Lines.Num() > MaxPointCount)
     {
-        PosBuffer = MoveTemp(FinalPos);
-        ColorBuffer = MoveTemp(FinalColor);
-    }
+        Lines.SetNum(MaxPointCount);
+#if WITH_EDITOR
+        if (bExportTexture)
+        {
+            PosBuffer.SetNum(MaxPointCount);
+            ColorBuffer.SetNum(MaxPointCount);
+        }
 #endif
+    }
 
     if (Lines.Num() == 0)
     {
