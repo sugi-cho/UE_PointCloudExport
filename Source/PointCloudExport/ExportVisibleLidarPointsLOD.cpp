@@ -10,6 +10,7 @@
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "EngineUtils.h"
+#include "Async/Async.h"
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/Package.h"
@@ -148,38 +149,56 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     const bool bUseLimit = MaxPointCount > 0;
 
+    TArray<TFuture<TArray<FPointRec>>> Futures;
+
     for (ALidarPointCloudActor* Actor : PointCloudActors)
     {
         if (!Actor) continue;
-        ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
-        ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
-        if (!Cloud) continue;
-
-        if (!FirstCloud) FirstCloud = Cloud;
-
-        FConvexVolume LocalFrustum = WorldFrustum;
-        const FMatrix WorldToCloud = Comp->GetComponentTransform().ToMatrixWithScale().Inverse();
-        const FVector LocationOffset = Cloud->LocationOffset;
-        for (FPlane& Plane : LocalFrustum.Planes)
+        Futures.Add(Async(EAsyncExecution::ThreadPool, [Actor, &WorldFrustum]()
         {
-            Plane = Plane.TransformBy(WorldToCloud);
-            Plane = Plane.TransformBy(FTranslationMatrix(-LocationOffset));
-            Plane.Normalize();
-        }
-        LocalFrustum.Init();
+            TArray<FPointRec> LocalPoints;
+            ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
+            ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
+            if (!Cloud) return LocalPoints;
 
-        TArray64<FLidarPointCloudPoint*> VisiblePts;
-        Cloud->GetPointsInConvexVolume(VisiblePts, LocalFrustum, /*bVisibleOnly=*/true);
+            FConvexVolume LocalFrustum = WorldFrustum;
+            const FMatrix WorldToCloud = Comp->GetComponentTransform().ToMatrixWithScale().Inverse();
+            const FVector LocationOffset = Cloud->LocationOffset;
+            for (FPlane& Plane : LocalFrustum.Planes)
+            {
+                Plane = Plane.TransformBy(WorldToCloud);
+                Plane = Plane.TransformBy(FTranslationMatrix(-LocationOffset));
+                Plane.Normalize();
+            }
+            LocalFrustum.Init();
 
-        const FTransform& CloudToWorld = Comp->GetComponentTransform();
-        for (const auto* P : VisiblePts)
+            TArray64<FLidarPointCloudPoint*> VisiblePts;
+            Cloud->GetPointsInConvexVolume(VisiblePts, LocalFrustum, /*bVisibleOnly=*/true);
+
+            const FTransform& CloudToWorld = Comp->GetComponentTransform();
+            for (const auto* P : VisiblePts)
+            {
+                FPointRec Rec;
+                Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
+                Rec.LocalPos = FVector(P->Location) + LocationOffset;
+                Rec.Color = P->Color;
+                LocalPoints.Add(Rec);
+            }
+            return LocalPoints;
+        }));
+
+        ULidarPointCloudComponent* CompCheck = Actor->GetPointCloudComponent();
+        ULidarPointCloud* CloudCheck = CompCheck ? CompCheck->GetPointCloud() : nullptr;
+        if (!FirstCloud && CloudCheck)
         {
-            FPointRec Rec;
-            Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
-            Rec.LocalPos = FVector(P->Location) + LocationOffset;
-            Rec.Color = P->Color;
-            AllPoints.Add(Rec);
+            FirstCloud = CloudCheck;
         }
+    }
+
+    for (TFuture<TArray<FPointRec>>& Future : Futures)
+    {
+        TArray<FPointRec> Points = Future.Get();
+        AllPoints.Append(MoveTemp(Points));
     }
 
     if (AllPoints.Num() == 0)
@@ -362,30 +381,48 @@ TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActo
     int64 PredictedPointCount = 0;
     const FVector CamLoc = Camera->GetComponentLocation();
 
+    TArray<ALidarPointCloudActor*> AllActors;
     for (TActorIterator<ALidarPointCloudActor> It(World); It; ++It)
     {
-        ALidarPointCloudActor* Actor = *It;
-        if (!Actor)
+        if (*It)
         {
-            continue;
+            AllActors.Add(*It);
         }
-        ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
-        if (!Comp)
-        {
-            continue;
-        }
+    }
 
-        // Use the actor's component bounds instead of the private CalcBounds API
-        FBox BoundsBox = Actor->GetComponentsBoundingBox(true);
-        FBoxSphereBounds Bounds(BoundsBox);
-        if (WorldFrustum.IntersectBox(Bounds.Origin, Bounds.BoxExtent))
+    struct FThreadResult
+    {
+        ALidarPointCloudActor* Actor = nullptr;
+        int64 TotalCount = 0;
+        int64 LODCount = 0;
+    };
+
+    TArray<TFuture<FThreadResult>> Futures;
+    Futures.Reserve(AllActors.Num());
+
+    for (ALidarPointCloudActor* Actor : AllActors)
+    {
+        Futures.Add(Async(EAsyncExecution::ThreadPool, [Actor, &WorldFrustum, CamLoc, NearFullResRadius, MidSkipRadius, FarSkipRadius, SkipFactorMid, SkipFactorFar]()
         {
-            Result.Add(Actor);
+            FThreadResult Res;
+            if (!Actor) return Res;
+
+            ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
+            if (!Comp) return Res;
+
+            // Use the actor's component bounds instead of the private CalcBounds API
+            FBox BoundsBox = Actor->GetComponentsBoundingBox(true);
+            FBoxSphereBounds Bounds(BoundsBox);
+            if (!WorldFrustum.IntersectBox(Bounds.Origin, Bounds.BoxExtent))
+            {
+                return Res;
+            }
+
+            Res.Actor = Actor;
 
             ULidarPointCloud* Cloud = Comp->GetPointCloud();
             if (Cloud)
             {
-                // Transform the frustum to the local space of the point cloud
                 FConvexVolume LocalFrustum = WorldFrustum;
                 const FMatrix WorldToCloud = Comp->GetComponentTransform().ToMatrixWithScale().Inverse();
                 const FVector LocationOffset = Cloud->LocationOffset;
@@ -399,12 +436,10 @@ TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActo
 
                 TArray64<FLidarPointCloudPoint*> Points;
                 Cloud->GetPointsInConvexVolume(Points, LocalFrustum, /*bVisibleOnly=*/true);
-                const int64 NumPoints = Points.Num();
-                TotalPointCount += NumPoints;
+                Res.TotalCount = Points.Num();
 
                 const FTransform& CloudToWorld = Comp->GetComponentTransform();
-                int64 LODCount = 0;
-                for (int64 Index = 0; Index < NumPoints; ++Index)
+                for (int64 Index = 0; Index < Res.TotalCount; ++Index)
                 {
                     const FLidarPointCloudPoint* P = Points[Index];
                     const FVector WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
@@ -428,12 +463,23 @@ TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActo
 
                     if (FMath::Fmod((float)(Index + 1), Skip) < 1.f)
                     {
-                        ++LODCount;
+                        ++Res.LODCount;
                     }
                 }
-
-                PredictedPointCount += LODCount;
             }
+
+            return Res;
+        }));
+    }
+
+    for (TFuture<FThreadResult>& Future : Futures)
+    {
+        FThreadResult Res = Future.Get();
+        if (Res.Actor)
+        {
+            Result.Add(Res.Actor);
+            TotalPointCount += Res.TotalCount;
+            PredictedPointCount += Res.LODCount;
         }
     }
 
