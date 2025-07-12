@@ -4,10 +4,8 @@
 #include "LidarPointCloud.h"
 #include "SceneManagement.h"
 #include "Camera/CameraComponent.h"
-#include "Runtime/Engine/Classes/Engine/EngineTypes.h"
 #include "Math/Vector.h"
 #include "Math/Box.h"
-#include "Async/ParallelFor.h"
 #include "Math/Plane.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
@@ -80,16 +78,6 @@ static void BuildFrustumFromCamera(const UCameraComponent* Camera, FConvexVolume
     OutFrustum.Planes.Add(FPlane(NBl, NBr, FBr)); // Bottom
 
     OutFrustum.Init();
-
-#if !(UE_BUILD_SHIPPING)
-    UE_LOG(LogTemp, Log, TEXT("Manual Frustum Planes (No Flip):"));
-    for (int32 i = 0; i < OutFrustum.Planes.Num(); ++i)
-    {
-        const FPlane& Plane = OutFrustum.Planes[i];
-        UE_LOG(LogTemp, Log, TEXT("  Plane[%d]: Normal=(%.3f, %.3f, %.3f) W=%.3f"),
-            i, Plane.X, Plane.Y, Plane.Z, Plane.W);
-    }
-#endif
 }
 
 
@@ -153,7 +141,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         FVector LocalPos;
         // Color.A stores the intensity value from the source point cloud
         FColor   Color;
-        ULidarPointCloud* SourceCloud;
     };
 
     TArray<FPointRec> AllPoints;
@@ -191,7 +178,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
             Rec.LocalPos = FVector(P->Location) + LocationOffset;
             Rec.Color = P->Color;
-            Rec.SourceCloud = Cloud;
             AllPoints.Add(Rec);
         }
     }
@@ -202,14 +188,11 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
-    // No merging step
-    TArray<FPointRec> PointsToProcess = AllPoints;
-
     const FVector CamLoc = Camera->GetComponentLocation();
 
     const int32 ReserveCount = bUseLimit
-        ? FMath::Min<int32>(PointsToProcess.Num(), MaxPointCount)
-        : PointsToProcess.Num();
+        ? FMath::Min<int32>(AllPoints.Num(), MaxPointCount)
+        : AllPoints.Num();
     TArray<FString> Lines;
     Lines.Reserve(ReserveCount);
 #if WITH_EDITOR
@@ -222,9 +205,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     }
 #endif
 
-    for (int32 Index = 0; Index < PointsToProcess.Num(); ++Index)
+    for (int32 Index = 0; Index < AllPoints.Num(); ++Index)
     {
-        const FPointRec& Rec = PointsToProcess[Index];
+        const FPointRec& Rec = AllPoints[Index];
         float Dist = FVector::Dist(Rec.WorldPos, CamLoc);
         float Skip = 1.0f;
 
