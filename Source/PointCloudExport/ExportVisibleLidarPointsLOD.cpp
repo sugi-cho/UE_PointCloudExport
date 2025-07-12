@@ -160,15 +160,9 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     ULidarPointCloud* FirstCloud = nullptr;
 
     const bool bUseLimit = MaxPointCount > 0;
-    bool bReachedLimit = false;
 
     for (ALidarPointCloudActor* Actor : PointCloudActors)
     {
-        if (bUseLimit && AllPoints.Num() >= MaxPointCount)
-        {
-            bReachedLimit = true;
-            break;
-        }
         if (!Actor) continue;
         ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
         ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
@@ -193,21 +187,12 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         const FTransform& CloudToWorld = Comp->GetComponentTransform();
         for (const auto* P : VisiblePts)
         {
-            if (bUseLimit && AllPoints.Num() >= MaxPointCount)
-            {
-                bReachedLimit = true;
-                break;
-            }
             FPointRec Rec;
             Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
             Rec.LocalPos = FVector(P->Location) + LocationOffset;
             Rec.Color = P->Color;
             Rec.SourceCloud = Cloud;
             AllPoints.Add(Rec);
-        }
-        if (bReachedLimit)
-        {
-            break;
         }
     }
 
@@ -306,6 +291,18 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         ColorBuffer = MoveTemp(FinalColor);
     }
 #endif
+
+    if (bUseLimit && Lines.Num() > MaxPointCount)
+    {
+        Lines.SetNum(MaxPointCount);
+#if WITH_EDITOR
+        if (bExportTexture)
+        {
+            PosBuffer.SetNum(MaxPointCount);
+            ColorBuffer.SetNum(MaxPointCount);
+        }
+#endif
+    }
 
     if (Lines.Num() == 0)
     {
