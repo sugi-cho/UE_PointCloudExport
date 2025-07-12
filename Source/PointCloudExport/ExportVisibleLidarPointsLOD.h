@@ -8,7 +8,6 @@
 class UCameraComponent;
 
 /**
-class POINTCLOUDEXPORT_API UExportVisibleLidarPointsLOD final
  *
  * 生成されるファイル: 1 行 1 点の ASCII
  *   X Y Z Intensity R G B
