@@ -26,7 +26,7 @@ Outputting LOD-Processed Point Clouds from a Camera Frustum
 ## Sample Scene
 1. Open the project and load `Content/LiDAR-Test/L_Test.umap`.
 2. The `BP_Test` blueprint calls `ExportVisiblePointsLOD` with an array of `LidarPointCloudActor` references and its `CameraComponent`. The visible portions of all clouds are merged and exported to `output.txt`.
-3. You can limit the number of exported points with the optional `MaxPointCount` parameter. The default is `20,000,000`.
+3. You can limit the number of exported points with the optional `MaxPointCount` parameter. The limit is applied after LOD processing and points beyond the limit are skipped to avoid long export times. The default is `20,000,000`.
 
 ## Example Output
 `docs/example_output.txt` shows a sample of the exported data. Each line follows the format `X Y Z Intensity R G B` where `Intensity` is measured in meters.
