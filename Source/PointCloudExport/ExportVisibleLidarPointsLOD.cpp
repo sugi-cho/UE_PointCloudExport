@@ -149,12 +149,16 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     const bool bUseLimit = MaxPointCount > 0;
 
+    const FVector CamLoc = Camera->GetComponentLocation();
+
     TArray<TFuture<TArray<FPointRec>>> Futures;
 
     for (ALidarPointCloudActor* Actor : PointCloudActors)
     {
         if (!Actor) continue;
-        Futures.Add(Async(EAsyncExecution::ThreadPool, [Actor, &WorldFrustum]()
+        Futures.Add(Async(EAsyncExecution::ThreadPool,
+            [Actor, &WorldFrustum, CamLoc,
+             NearFullResRadius, MidSkipRadius, FarSkipRadius, SkipFactorMid, SkipFactorFar]()
         {
             TArray<FPointRec> LocalPoints;
             ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
@@ -176,10 +180,35 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
             Cloud->GetPointsInConvexVolume(VisiblePts, LocalFrustum, /*bVisibleOnly=*/true);
 
             const FTransform& CloudToWorld = Comp->GetComponentTransform();
-            for (const auto* P : VisiblePts)
+            for (int32 Index = 0; Index < VisiblePts.Num(); ++Index)
             {
+                const auto* P = VisiblePts[Index];
+                const FVector WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
+                const float Dist = FVector::Dist(WorldPos, CamLoc);
+
+                float Skip = 1.f;
+                if (Dist > FarSkipRadius)
+                {
+                    Skip = (float)SkipFactorFar;
+                }
+                else if (Dist > MidSkipRadius)
+                {
+                    const float t = (Dist - MidSkipRadius) / (FarSkipRadius - MidSkipRadius);
+                    Skip = FMath::Lerp((float)SkipFactorMid, (float)SkipFactorFar, t);
+                }
+                else if (Dist > NearFullResRadius)
+                {
+                    const float t = (Dist - NearFullResRadius) / (MidSkipRadius - NearFullResRadius);
+                    Skip = FMath::Lerp(1.f, (float)SkipFactorMid, t);
+                }
+
+                if (FMath::Fmod((float)(Index + 1), Skip) >= 1.f)
+                {
+                    continue;
+                }
+
                 FPointRec Rec;
-                Rec.WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
+                Rec.WorldPos = WorldPos;
                 Rec.LocalPos = FVector(P->Location) + LocationOffset;
                 Rec.Color = P->Color;
                 LocalPoints.Add(Rec);
@@ -207,8 +236,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
-    const FVector CamLoc = Camera->GetComponentLocation();
-
     const int32 ReserveCount = bUseLimit
         ? FMath::Min<int32>(AllPoints.Num(), MaxPointCount)
         : AllPoints.Num();
@@ -227,25 +254,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     for (int32 Index = 0; Index < AllPoints.Num(); ++Index)
     {
         const FPointRec& Rec = AllPoints[Index];
-        float Dist = FVector::Dist(Rec.WorldPos, CamLoc);
-        float Skip = 1.0f;
-
-        if (Dist > FarSkipRadius) {
-            Skip = (float)SkipFactorFar;
-        }
-        else if (Dist > MidSkipRadius) {
-            float t = (Dist - MidSkipRadius) / (FarSkipRadius - MidSkipRadius);
-            Skip = FMath::Lerp((float)SkipFactorMid, (float)SkipFactorFar, t);
-        }
-        else if (Dist > NearFullResRadius) {
-            float t = (Dist - NearFullResRadius) / (MidSkipRadius - NearFullResRadius);
-            Skip = FMath::Lerp(1.0f, (float)SkipFactorMid, t);
-        }
-
-        if (FMath::Fmod((float)(Index + 1), Skip) >= 1.0f)
-        {
-            continue;
-        }
 
         const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
         Lines.Add(FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d %d"),
