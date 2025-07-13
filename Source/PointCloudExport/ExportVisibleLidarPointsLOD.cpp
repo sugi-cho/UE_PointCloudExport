@@ -13,6 +13,7 @@
 #include "EngineUtils.h"
 #include "Async/Async.h"
 #include "Async/ParallelFor.h"
+#include "HAL/PlatformTime.h"
 #include <cfloat>
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -189,6 +190,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
+    const double StartTime = FPlatformTime::Seconds();
+
     // 1) 視錐台フィルタリング
     FConvexVolume WorldFrustum;
     BuildFrustumFromCamera(Camera, WorldFrustum, FrustumFar);
@@ -201,6 +204,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     const FVector CamLoc = Camera->GetComponentLocation();
 
     TArray<TFuture<TArray<FPointRec>>> Futures;
+    const double GatherStart = FPlatformTime::Seconds();
 
     for (ALidarPointCloudActor* Actor : PointCloudActors)
     {
@@ -280,12 +284,16 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         AllPoints.Append(MoveTemp(Points));
     }
 
+    const double GatherTime = FPlatformTime::Seconds() - GatherStart;
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsLOD: Gathered %d points in %.2f sec"), AllPoints.Num(), GatherTime);
+
     if (AllPoints.Num() == 0)
     {
         UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: No points in frustum."));
         return false;
     }
 
+    const double SortStart = FPlatformTime::Seconds();
     if (bUseLimit && AllPoints.Num() > MaxPointCount)
     {
         ParallelBitonicSort(AllPoints, [](const FPointRec& A, const FPointRec& B)
@@ -294,6 +302,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         });
         AllPoints.SetNum(MaxPointCount);
     }
+    const double SortTime = FPlatformTime::Seconds() - SortStart;
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsLOD: Sort/Limit took %.2f sec"), SortTime);
 
     const int32 ReserveCount = AllPoints.Num();
     TArray<FString> Lines;
@@ -307,6 +317,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         ColorBuffer.Reserve(ReserveCount);
     }
 #endif
+
+    const double FormatStart = FPlatformTime::Seconds();
 
     for (int32 Index = 0; Index < AllPoints.Num(); ++Index)
     {
@@ -327,11 +339,16 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     }
 
+    const double FormatTime = FPlatformTime::Seconds() - FormatStart;
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsLOD: Format output took %.2f sec"), FormatTime);
+
     if (Lines.Num() == 0)
     {
         UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsLOD: All points skipped by LOD."));
         return false;
     }
+
+    const double WriteStart = FPlatformTime::Seconds();
 
     const FString DirectoryPath = FPaths::GetPath(AbsoluteFilePath);
     if (!DirectoryPath.IsEmpty() && !IFileManager::Get().DirectoryExists(*DirectoryPath))
@@ -402,9 +419,12 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     }
 #endif
 
+    const double WriteTime = FPlatformTime::Seconds() - WriteStart;
+    const double TotalTime = FPlatformTime::Seconds() - StartTime;
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsLOD: Write file/textures took %.2f sec"), WriteTime);
     UE_LOG(LogTemp, Log,
-        TEXT("ExportVisiblePointsLOD: Wrote %d points → %s"),
-        Lines.Num(), *AbsoluteFilePath);
+        TEXT("ExportVisiblePointsLOD: Wrote %d points → %s (%.2f sec total)"),
+        Lines.Num(), *AbsoluteFilePath, TotalTime);
     return true;
 }
 
@@ -431,6 +451,8 @@ TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActo
     {
         return Result;
     }
+
+    const double StartTime = FPlatformTime::Seconds();
 
     FConvexVolume WorldFrustum;
     BuildFrustumFromCamera(Camera, WorldFrustum, FrustumFar);
@@ -542,8 +564,9 @@ TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActo
         }
     }
 
-    UE_LOG(LogTemp, Log, TEXT("GetVisibleLidarActors: Total Points = %lld, Estimated LOD Points = %lld"),
-        TotalPointCount, PredictedPointCount);
+    const double TotalTime = FPlatformTime::Seconds() - StartTime;
+    UE_LOG(LogTemp, Log, TEXT("GetVisibleLidarActors: Total Points = %lld, Estimated LOD Points = %lld (%.2f sec)"),
+        TotalPointCount, PredictedPointCount, TotalTime);
 
     return Result;
 }
@@ -568,6 +591,8 @@ bool UExportVisibleLidarPointsLOD::SavePointCloudTextures(ULidarPointCloud* Poin
         UE_LOG(LogTemp, Warning, TEXT("SavePointCloudTextures: No points in asset"));
         return false;
     }
+
+    const double StartTime = FPlatformTime::Seconds();
 
     const int32 PointCount = Points.Num();
     const int32 TexDim = FMath::CeilToInt(FMath::Sqrt((float)PointCount));
@@ -617,7 +642,8 @@ bool UExportVisibleLidarPointsLOD::SavePointCloudTextures(ULidarPointCloud* Poin
     const FString ColorFileName = FPackageName::LongPackageNameToFilename(ColorTexPackageName, FPackageName::GetAssetPackageExtension());
     UPackage::SavePackage(ColorPackage, ColorTex, EObjectFlags::RF_Public | RF_Standalone, *ColorFileName);
 
-    UE_LOG(LogTemp, Log, TEXT("SavePointCloudTextures: Saved %d points to %s"), PointCount, *FolderPath);
+    const double TotalTime = FPlatformTime::Seconds() - StartTime;
+    UE_LOG(LogTemp, Log, TEXT("SavePointCloudTextures: Saved %d points to %s (%.2f sec)"), PointCount, *FolderPath, TotalTime);
     return true;
 #else
     return false;
