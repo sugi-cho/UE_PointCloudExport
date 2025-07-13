@@ -12,8 +12,8 @@
 #include "Misc/Paths.h"
 #include "EngineUtils.h"
 #include "Async/Async.h"
-#include "Algo/Sort.h"
-#include "Algo/ParallelSort.h"
+#include "Async/ParallelFor.h"
+#include <cfloat>
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/Package.h"
@@ -84,6 +84,60 @@ static void BuildFrustumFromCamera(const UCameraComponent* Camera, FConvexVolume
     OutFrustum.Init();
 }
 
+struct FPointRec
+{
+    FVector WorldPos;
+    FVector LocalPos;
+    float   Distance = 0.f;
+    FColor  Color;
+};
+
+template <typename Predicate>
+static void ParallelBitonicSort(TArray<FPointRec>& Array, Predicate Pred)
+{
+    const int32 N = Array.Num();
+    int32 Pow2 = 1;
+    while (Pow2 < N)
+    {
+        Pow2 <<= 1;
+    }
+
+    if (Pow2 > N)
+    {
+        FPointRec Sentinel;
+        Sentinel.Distance = FLT_MAX;
+        Array.AddDefaulted(Pow2 - N);
+        for (int32 i = N; i < Pow2; ++i)
+        {
+            Array[i] = Sentinel;
+        }
+    }
+
+    for (int32 k = 2; k <= Pow2; k <<= 1)
+    {
+        for (int32 j = k >> 1; j > 0; j >>= 1)
+        {
+            ParallelFor(Pow2, [&](int32 i)
+            {
+                int32 ixj = i ^ j;
+                if (ixj > i)
+                {
+                    const bool Asc = (i & k) == 0;
+                    const bool SwapNeeded = Asc ? Pred(Array[ixj], Array[i]) : Pred(Array[i], Array[ixj]);
+                    if (SwapNeeded)
+                    {
+                        Swap(Array[i], Array[ixj]);
+                    }
+                }
+            });
+        }
+    }
+
+    if (Pow2 > N)
+    {
+        Array.SetNum(N);
+    }
+}
 
 
 // ------------------------------------------------------------
@@ -138,16 +192,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     // 1) 視錐台フィルタリング
     FConvexVolume WorldFrustum;
     BuildFrustumFromCamera(Camera, WorldFrustum, FrustumFar);
-
-    struct FPointRec
-    {
-        FVector WorldPos;
-        FVector LocalPos;
-        // Distance from camera for sorting
-        float    Distance = 0.f;
-        // Color.A stores the intensity value from the source point cloud
-        FColor   Color;
-    };
 
     TArray<FPointRec> AllPoints;
     ULidarPointCloud* FirstCloud = nullptr;
@@ -244,7 +288,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 
     if (bUseLimit && AllPoints.Num() > MaxPointCount)
     {
-        Algo::ParallelSort(AllPoints, [](const FPointRec& A, const FPointRec& B)
+        ParallelBitonicSort(AllPoints, [](const FPointRec& A, const FPointRec& B)
         {
             return A.Distance < B.Distance;
         });
