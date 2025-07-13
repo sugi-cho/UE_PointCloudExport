@@ -12,6 +12,8 @@
 #include "Misc/Paths.h"
 #include "EngineUtils.h"
 #include "Async/Async.h"
+#include "Algo/Sort.h"
+#include "Algo/ParallelSort.h"
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/Package.h"
@@ -141,6 +143,8 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
     {
         FVector WorldPos;
         FVector LocalPos;
+        // Distance from camera for sorting
+        float    Distance = 0.f;
         // Color.A stores the intensity value from the source point cloud
         FColor   Color;
     };
@@ -211,6 +215,7 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
                 FPointRec Rec;
                 Rec.WorldPos = WorldPos;
                 Rec.LocalPos = FVector(P->Location) + LocationOffset;
+                Rec.Distance = Dist;
                 Rec.Color = P->Color;
                 LocalPoints.Add(Rec);
             }
@@ -237,9 +242,16 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         return false;
     }
 
-    const int32 ReserveCount = bUseLimit
-        ? FMath::Min<int32>(AllPoints.Num(), MaxPointCount)
-        : AllPoints.Num();
+    if (bUseLimit && AllPoints.Num() > MaxPointCount)
+    {
+        Algo::ParallelSort(AllPoints, [](const FPointRec& A, const FPointRec& B)
+        {
+            return A.Distance < B.Distance;
+        });
+        AllPoints.SetNum(MaxPointCount);
+    }
+
+    const int32 ReserveCount = AllPoints.Num();
     TArray<FString> Lines;
     Lines.Reserve(ReserveCount);
 #if WITH_EDITOR
@@ -269,23 +281,6 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
         }
 #endif
 
-        if (bUseLimit && Lines.Num() >= MaxPointCount)
-        {
-            break;
-        }
-    }
-
-
-    if (bUseLimit && Lines.Num() > MaxPointCount)
-    {
-        Lines.SetNum(MaxPointCount);
-#if WITH_EDITOR
-        if (bExportTexture)
-        {
-            PosBuffer.SetNum(MaxPointCount);
-            ColorBuffer.SetNum(MaxPointCount);
-        }
-#endif
     }
 
     if (Lines.Num() == 0)

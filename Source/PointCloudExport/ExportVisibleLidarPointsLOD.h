@@ -33,7 +33,7 @@ public:
      * @param SkipFactorFar       最遠距離帯でのサンプリング間隔
      * @param bWorldSpace         true: ワールド座標 / false: 点群ローカル
      * @param bExportTexture      位置/色テクスチャを UAsset として保存
-     * @param MaxPointCount       LOD 適用後に出力するポイント数の上限。上限に達すると以降のポイントは処理をスキップする (0 以下で無制限)
+     * @param MaxPointCount       LOD 適用後に出力するポイント数の上限。上限を超えた場合、カメラからの距離で並び替えて近い順にこの数だけを保持する (0 以下で無制限)
      * @return                    成功可否
      */
     UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
