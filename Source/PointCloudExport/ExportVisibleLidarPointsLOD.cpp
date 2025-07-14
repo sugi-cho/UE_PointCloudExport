@@ -429,6 +429,279 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsLOD(
 }
 
 // ------------------------------------------------------------
+//  Octree LOD version: export visible points with search depth based on distance
+// ------------------------------------------------------------
+bool UExportVisibleLidarPointsLOD::ExportVisiblePointsOctreeLOD(
+    const TArray<ALidarPointCloudActor*>& PointCloudActors,
+    UCameraComponent* Camera,
+    const FString& AbsoluteFilePath,
+    float FrustumFar,
+    float NearDepthRadius,
+    float FarDepthRadius,
+    int32 NearDepth,
+    int32 FarDepth,
+    bool bWorldSpace,
+    bool bExportTexture,
+    int32 MaxPointCount)
+{
+    if (PointCloudActors.Num() == 0 || !Camera)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: Invalid input."));
+        return false;
+    }
+
+    if (AbsoluteFilePath.IsEmpty())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: AbsoluteFilePath is empty."));
+        return false;
+    }
+    if (NearDepthRadius <= 0.f || FarDepthRadius <= 0.f)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: Radius values must be > 0."));
+        return false;
+    }
+    if (!(NearDepthRadius < FarDepthRadius))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: Radius values are inconsistent."));
+        return false;
+    }
+    if (NearDepth < 0 || FarDepth < 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: Depth values must be >= 0."));
+        return false;
+    }
+
+    const double StartTime = FPlatformTime::Seconds();
+
+    FConvexVolume WorldFrustum;
+    BuildFrustumFromCamera(Camera, WorldFrustum, FrustumFar);
+
+    TArray<FPointRec> AllPoints;
+    ULidarPointCloud* FirstCloud = nullptr;
+
+    const bool bUseLimit = MaxPointCount > 0;
+
+    const FVector CamLoc = Camera->GetComponentLocation();
+
+    TArray<TFuture<TArray<FPointRec>>> Futures;
+    const double GatherStart = FPlatformTime::Seconds();
+
+    for (ALidarPointCloudActor* Actor : PointCloudActors)
+    {
+        if (!Actor) continue;
+
+        const float DistToActor = FVector::Dist(Actor->GetActorLocation(), CamLoc);
+        int32 SearchDepth = NearDepth;
+        if (DistToActor > NearDepthRadius)
+        {
+            if (DistToActor >= FarDepthRadius)
+            {
+                SearchDepth = FarDepth;
+            }
+            else
+            {
+                const float t = (DistToActor - NearDepthRadius) / (FarDepthRadius - NearDepthRadius);
+                SearchDepth = FMath::RoundToInt(FMath::Lerp((float)NearDepth, (float)FarDepth, t));
+            }
+        }
+
+        Futures.Add(Async(EAsyncExecution::ThreadPool,
+            [Actor, &WorldFrustum, CamLoc, SearchDepth]()
+        {
+            TArray<FPointRec> LocalPoints;
+            ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
+            ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
+            if (!Cloud) return LocalPoints;
+
+            FConvexVolume LocalFrustum = WorldFrustum;
+            const FMatrix WorldToCloud = Comp->GetComponentTransform().ToMatrixWithScale().Inverse();
+            const FVector LocationOffset = Cloud->LocationOffset;
+            for (FPlane& Plane : LocalFrustum.Planes)
+            {
+                Plane = Plane.TransformBy(WorldToCloud);
+                Plane = Plane.TransformBy(FTranslationMatrix(-LocationOffset));
+                Plane.Normalize();
+            }
+            LocalFrustum.Init();
+
+            TArray64<FLidarPointCloudPoint*> VisiblePts;
+            Cloud->GetPointsInConvexVolume(VisiblePts, LocalFrustum, /*bVisibleOnly=*/true, SearchDepth);
+
+            const FTransform& CloudToWorld = Comp->GetComponentTransform();
+            for (int32 Index = 0; Index < VisiblePts.Num(); ++Index)
+            {
+                const auto* P = VisiblePts[Index];
+                const FVector WorldPos = CloudToWorld.TransformPosition(FVector(P->Location) + LocationOffset);
+                const float Dist = FVector::Dist(WorldPos, CamLoc);
+
+                FPointRec Rec;
+                Rec.WorldPos = WorldPos;
+                Rec.LocalPos = FVector(P->Location) + LocationOffset;
+                Rec.Distance = Dist;
+                Rec.Color = P->Color;
+                LocalPoints.Add(Rec);
+            }
+            return LocalPoints;
+        }));
+
+        ULidarPointCloudComponent* CompCheck = Actor->GetPointCloudComponent();
+        ULidarPointCloud* CloudCheck = CompCheck ? CompCheck->GetPointCloud() : nullptr;
+        if (!FirstCloud && CloudCheck)
+        {
+            FirstCloud = CloudCheck;
+        }
+    }
+
+    for (TFuture<TArray<FPointRec>>& Future : Futures)
+    {
+        TArray<FPointRec> Points = Future.Get();
+        AllPoints.Append(MoveTemp(Points));
+    }
+
+    const double GatherTime = FPlatformTime::Seconds() - GatherStart;
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsOctreeLOD: Gathered %d points in %.2f sec"), AllPoints.Num(), GatherTime);
+
+    if (AllPoints.Num() == 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: No points in frustum."));
+        return false;
+    }
+
+    const double SortStart = FPlatformTime::Seconds();
+    if (bUseLimit && AllPoints.Num() > MaxPointCount)
+    {
+        ParallelBitonicSort(AllPoints, [](const FPointRec& A, const FPointRec& B)
+        {
+            return A.Distance < B.Distance;
+        });
+        AllPoints.SetNum(MaxPointCount);
+    }
+    const double SortTime = FPlatformTime::Seconds() - SortStart;
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsOctreeLOD: Sort/Limit took %.2f sec"), SortTime);
+
+    const int32 ReserveCount = AllPoints.Num();
+    TArray<FString> Lines;
+    Lines.Reserve(ReserveCount);
+#if WITH_EDITOR
+    TArray<FLinearColor> PosBuffer;
+    TArray<FColor> ColorBuffer;
+    if (bExportTexture)
+    {
+        PosBuffer.Reserve(ReserveCount);
+        ColorBuffer.Reserve(ReserveCount);
+    }
+#endif
+
+    const double FormatStart = FPlatformTime::Seconds();
+
+    for (int32 Index = 0; Index < AllPoints.Num(); ++Index)
+    {
+        const FPointRec& Rec = AllPoints[Index];
+
+        const FVector UsePos = (bWorldSpace ? Rec.WorldPos : Rec.LocalPos);
+        Lines.Add(FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d %d"),
+            UsePos.X * 0.01f, -UsePos.Y * 0.01f, UsePos.Z * 0.01f,
+            Rec.Color.A, Rec.Color.R, Rec.Color.G, Rec.Color.B));
+#if WITH_EDITOR
+        if (bExportTexture)
+        {
+            PosBuffer.Add(FLinearColor(UsePos.X, UsePos.Y, UsePos.Z, 1.f));
+            ColorBuffer.Add(FColor(Rec.Color.R, Rec.Color.G, Rec.Color.B, Rec.Color.A));
+        }
+#endif
+
+    }
+
+    const double FormatTime = FPlatformTime::Seconds() - FormatStart;
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsOctreeLOD: Format output took %.2f sec"), FormatTime);
+
+    if (Lines.Num() == 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: No points after LOD."));
+        return false;
+    }
+
+    const double WriteStart = FPlatformTime::Seconds();
+
+    const FString DirectoryPath = FPaths::GetPath(AbsoluteFilePath);
+    if (!DirectoryPath.IsEmpty() && !IFileManager::Get().DirectoryExists(*DirectoryPath))
+    {
+        if (!IFileManager::Get().MakeDirectory(*DirectoryPath, true))
+        {
+            UE_LOG(LogTemp, Error,
+                TEXT("ExportVisiblePointsOctreeLOD: Failed to create directory %s"), *DirectoryPath);
+            return false;
+        }
+    }
+
+    const FString Joined = FString::Join(Lines, TEXT("\n")) + TEXT("\n");
+    if (!FFileHelper::SaveStringToFile(
+        Joined, *AbsoluteFilePath,
+        FFileHelper::EEncodingOptions::AutoDetect,
+        &IFileManager::Get(), FILEWRITE_AllowRead))
+    {
+        UE_LOG(LogTemp, Error,
+            TEXT("ExportVisiblePointsOctreeLOD: Failed to save file %s"), *AbsoluteFilePath);
+        return false;
+    }
+
+#if WITH_EDITOR
+    const int32 PointCount = Lines.Num();
+    if (bExportTexture && PosBuffer.Num() == PointCount && ColorBuffer.Num() == PointCount && FirstCloud)
+    {
+        const int32 TexDim = FMath::CeilToInt(FMath::Sqrt((float)PointCount));
+        TArray<FFloat16Color> PosPixels;
+        TArray<FColor> ColorPixels;
+        PosPixels.Init(FFloat16Color(FLinearColor::Transparent), TexDim * TexDim);
+        ColorPixels.Init(FColor(0, 0, 0, 0), TexDim * TexDim);
+        for (int32 i = 0; i < PointCount; ++i)
+        {
+            const int32 X = i % TexDim;
+            const int32 Y = i / TexDim;
+            const int32 Idx = Y * TexDim + X;
+            PosPixels[Idx] = FFloat16Color(PosBuffer[i]);
+            ColorPixels[Idx] = ColorBuffer[i];
+        }
+        const FString CloudPackage = FirstCloud->GetOutermost()->GetName();
+        const FString FolderPath = FPackageName::GetLongPackagePath(CloudPackage);
+        const FString BaseName = FirstCloud->GetName();
+
+        const FString PosTexPackageName = MakeUniquePackageName(FolderPath, BaseName + TEXT("_PosTex"));
+        UPackage* PosPackage = CreatePackage(*PosTexPackageName);
+        UTexture2D* PosTex = NewObject<UTexture2D>(PosPackage, *FPackageName::GetShortName(PosTexPackageName), RF_Public | RF_Standalone);
+        PosTex->Source.Init(TexDim, TexDim, 1, 1, TSF_RGBA16F, (const uint8*)PosPixels.GetData());
+        PosTex->CompressionSettings = TC_HDR;
+        PosTex->SRGB = false;
+        PosTex->UpdateResource();
+        FAssetRegistryModule::AssetCreated(PosTex);
+        PosPackage->MarkPackageDirty();
+        const FString PosFileName = FPackageName::LongPackageNameToFilename(PosTexPackageName, FPackageName::GetAssetPackageExtension());
+        UPackage::SavePackage(PosPackage, PosTex, EObjectFlags::RF_Public | RF_Standalone, *PosFileName);
+
+        const FString ColorTexPackageName = MakeUniquePackageName(FolderPath, BaseName + TEXT("_ColorTex"));
+        UPackage* ColorPackage = CreatePackage(*ColorTexPackageName);
+        UTexture2D* ColorTex = NewObject<UTexture2D>(ColorPackage, *FPackageName::GetShortName(ColorTexPackageName), RF_Public | RF_Standalone);
+        ColorTex->Source.Init(TexDim, TexDim, 1, 1, TSF_BGRA8, (const uint8*)ColorPixels.GetData());
+        ColorTex->CompressionSettings = TC_Default;
+        ColorTex->SRGB = true;
+        ColorTex->UpdateResource();
+        FAssetRegistryModule::AssetCreated(ColorTex);
+        ColorPackage->MarkPackageDirty();
+        const FString ColorFileName = FPackageName::LongPackageNameToFilename(ColorTexPackageName, FPackageName::GetAssetPackageExtension());
+        UPackage::SavePackage(ColorPackage, ColorTex, EObjectFlags::RF_Public | RF_Standalone, *ColorFileName);
+    }
+#endif
+
+    const double WriteTime = FPlatformTime::Seconds() - WriteStart;
+    const double TotalTime = FPlatformTime::Seconds() - StartTime;
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsOctreeLOD: Write file/textures took %.2f sec"), WriteTime);
+    UE_LOG(LogTemp, Log,
+        TEXT("ExportVisiblePointsOctreeLOD: Wrote %d points → %s (%.2f sec total)"),
+        Lines.Num(), *AbsoluteFilePath, TotalTime);
+    return true;
+}
+
+// ------------------------------------------------------------
 //  指定カメラから見える LidarPointCloudActor を取得
 // ------------------------------------------------------------
 TArray<ALidarPointCloudActor*> UExportVisibleLidarPointsLOD::GetVisibleLidarActors(

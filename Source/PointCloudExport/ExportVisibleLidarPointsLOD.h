@@ -53,6 +53,37 @@ public:
       );
 
     /**
+     * Octree LOD を使用してカメラからの距離に応じた検索深度でポイントを出力
+     *
+     * @param PointCloudActors  対象となる LidarPointCloudActor 配列
+     * @param Camera            参照するカメラコンポーネント
+     * @param AbsoluteFilePath  出力先ファイルパス
+     * @param FrustumFar        視錐台の Far 値 [cm]
+     * @param NearDepthRadius   この距離以内では NearDepth で検索 [cm]
+     * @param FarDepthRadius    この距離を超えると FarDepth で検索 [cm]
+     * @param NearDepth         近距離で使用する Octree 深度
+     * @param FarDepth          遠距離で使用する Octree 深度
+     * @param bWorldSpace       true: ワールド座標 / false: 点群ローカル
+     * @param bExportTexture    位置/色テクスチャを UAsset として保存
+     * @param MaxPointCount     出力ポイント数の上限 (0 以下で無制限)
+     * @return                  成功可否
+     */
+    UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
+    static bool ExportVisiblePointsOctreeLOD(
+        const TArray<ALidarPointCloudActor*>& PointCloudActors,
+        UCameraComponent* Camera,
+        const FString& AbsoluteFilePath,
+        float FrustumFar = 10000.f,
+        float NearDepthRadius = 5000.f,
+        float FarDepthRadius = 100000.f,
+        int32 NearDepth = 5,
+        int32 FarDepth = 1,
+        bool bWorldSpace = true,
+        bool bExportTexture = false,
+        int32 MaxPointCount = 20000000
+    );
+
+    /**
      * カメラの視錐台に入っている LidarPointCloudActor を取得
      *
      * @param Camera           チェックするカメラコンポーネント
