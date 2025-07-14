@@ -8,13 +8,13 @@ public class PointCloudExport : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "AssetRegistry" });
 
                 PrivateDependencyModuleNames.AddRange(new string[] { "LidarPointCloudRuntime" });
 
                 if (Target.bBuildEditor)
                 {
-                        PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "AssetRegistry" });
+                        PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd"});
                 }
 
 
