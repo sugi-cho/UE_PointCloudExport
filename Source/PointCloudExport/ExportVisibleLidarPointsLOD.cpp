@@ -785,34 +785,34 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsOctreeLOD(
             ULidarPointCloud*          Cloud = Comp ? Comp->GetPointCloud() : nullptr;
             if (!Cloud) return LocalOutput;
 
-            FConvexVolume LocalFrustum = WorldFrustum;
-            const FMatrix WorldToLocal = Comp->GetComponentTransform().ToMatrixWithScale().Inverse();
-            const FVector Offset       = Cloud->LocationOffset;
-            for (FPlane& Plane : LocalFrustum.Planes)
-            {
-                Plane = Plane.TransformBy(WorldToLocal);
-                Plane = Plane.TransformBy(FTranslationMatrix(-Offset));
-                Plane.Normalize();
-            }
-            LocalFrustum.Init();
+            const FVector Offset = Cloud->LocationOffset;
 
-            // Access the octree directly from the point cloud instance
             FLidarPointCloudOctree& Octree = Cloud->Octree;
             const FTransform& LocalToWorld = Comp->GetComponentTransform();
             LocalOutput.Reserve(1024);
 
             FLidarPointCloudTraversalOctree Traversal(&Octree, LocalToWorld);
-            Traversal.Traverse(true,
-                [&](FTraversalNode& Node, bool bNodeCompletelyInside)
-            {
-                const FVector NodeCenterWS = LocalToWorld.TransformPosition(Node.Bounds.GetCenter() + Offset);
-                const float   Dist        = FVector::Dist(NodeCenterWS, CamLoc);
-                const uint32  DepthLimit  = ComputeAllowedDepth(Dist, NearDepthRadius, FarDepthRadius, NearDepth, FarDepth);
 
-                if (Node.DataNode->GetDepth() >= DepthLimit)
+            TArray<FTraversalNode*> Stack;
+            Stack.Add(&Traversal.Root);
+
+            while (Stack.Num() > 0)
+            {
+                FTraversalNode* Cur = Stack.Pop(false);
+
+                FBox NodeBox = Cur->DataNode->GetBounds().ShiftBy(Offset).TransformBy(LocalToWorld);
+                if (!WorldFrustum.IntersectBox(NodeBox.GetCenter(), NodeBox.GetExtent()))
                 {
-                    const FLidarPointCloudPoint* Pts = Node.DataNode->GetData();
-                    const uint32 Num                 = Node.DataNode->GetNumPoints();
+                    continue;
+                }
+
+                const float Dist = FVector::Dist(NodeBox.GetCenter(), CamLoc);
+                const uint32 DepthLimit = ComputeAllowedDepth(Dist, NearDepthRadius, FarDepthRadius, NearDepth, FarDepth);
+
+                if (Cur->Depth >= DepthLimit || Cur->Children.Num() == 0)
+                {
+                    const FLidarPointCloudPoint* Pts = Cur->DataNode->GetData();
+                    const uint32 Num = Cur->DataNode->GetNumPoints();
                     for (uint32 idx = 0; idx < Num; ++idx)
                     {
                         const FLidarPointCloudPoint& Pt = Pts[idx];
@@ -823,11 +823,14 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsOctreeLOD(
                         Rec.Color      = Pt.Color;
                         LocalOutput.Add(Rec);
                     }
-                    return false;
+                    continue;
                 }
-                return true;
-            },
-            &LocalFrustum);
+
+                for (FTraversalNode& Child : Cur->Children)
+                {
+                    Stack.Add(&Child);
+                }
+            }
 
             return LocalOutput;
         }));
