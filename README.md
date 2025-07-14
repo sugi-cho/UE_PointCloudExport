@@ -11,6 +11,7 @@ PointCloudExport is a plugin and sample project for Unreal Engine 5. It exports 
 ## Features
 - Export visible points from multiple `LidarPointCloudActor` instances
 - Output LOD-processed point clouds from a camera frustum
+- Octree-based LOD export using search depth
 - Export position and color textures directly from a `LidarPointCloud` asset
 
 Outputting LOD-Processed Point Clouds from a Camera Frustum
@@ -25,7 +26,7 @@ Outputting LOD-Processed Point Clouds from a Camera Frustum
 
 ## Sample Scene
 1. Open the project and load `Content/LiDAR-Test/L_Test.umap`.
-2. The `BP_Test` blueprint calls `ExportVisiblePointsLOD` with an array of `LidarPointCloudActor` references and its `CameraComponent`. The visible portions of all clouds are merged and exported to `output.txt`. The output directory is created automatically if it does not already exist.
+2. The `BP_Test` blueprint calls `ExportVisiblePointsLOD` to export by sampling rate. `ExportVisiblePointsOctreeLOD` is provided to compare an octree depth based approach. Both functions take the same actor array and camera component and write the result to `output.txt`. The output directory is created automatically if it does not already exist.
 3. You can limit the number of exported points with the optional `MaxPointCount` parameter. If the LOD-processed point count exceeds this limit, the points are sorted by distance from the camera using a parallel bitonic sort and only the closest points are kept. When the count does not exceed the limit, no sorting is performed. The default is `20,000,000`.
 
 ## Example Output
