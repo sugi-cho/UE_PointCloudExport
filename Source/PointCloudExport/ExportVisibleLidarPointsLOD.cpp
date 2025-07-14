@@ -2,6 +2,7 @@
 
 #include "LidarPointCloudComponent.h"
 #include "LidarPointCloud.h"
+#include "LidarPointCloudOctree.h"
 #include "SceneManagement.h"
 #include "Camera/CameraComponent.h"
 #include "Math/Vector.h"
@@ -93,6 +94,25 @@ struct FPointRec
     FColor  Color;
 };
 
+// -----------------------------------------------------------------------------
+//  Octree LOD support types
+// -----------------------------------------------------------------------------
+struct FPointRec_Octree
+{
+    FVector WorldPos;
+    FVector LocalPos;
+    float   DistanceSq = 0.f;
+    FColor  Color;
+};
+
+static FORCEINLINE uint32 ComputeAllowedDepth(float Distance, float NearR, float FarR, int32 NearD, int32 FarD)
+{
+    if (Distance <= NearR)         { return (uint32)NearD; }
+    if (Distance >= FarR)          { return (uint32)FarD;  }
+    const float T = (Distance - NearR) / (FarR - NearR);
+    return (uint32)FMath::RoundToInt(FMath::Lerp((float)NearD, (float)FarD, T));
+}
+
 template <typename Predicate>
 static void ParallelBitonicSort(TArray<FPointRec>& Array, Predicate Pred)
 {
@@ -107,6 +127,53 @@ static void ParallelBitonicSort(TArray<FPointRec>& Array, Predicate Pred)
     {
         FPointRec Sentinel;
         Sentinel.Distance = FLT_MAX;
+        Array.AddDefaulted(Pow2 - N);
+        for (int32 i = N; i < Pow2; ++i)
+        {
+            Array[i] = Sentinel;
+        }
+    }
+
+    for (int32 k = 2; k <= Pow2; k <<= 1)
+    {
+        for (int32 j = k >> 1; j > 0; j >>= 1)
+        {
+            ParallelFor(Pow2, [&](int32 i)
+            {
+                int32 ixj = i ^ j;
+                if (ixj > i)
+                {
+                    const bool Asc = (i & k) == 0;
+                    const bool SwapNeeded = Asc ? Pred(Array[ixj], Array[i]) : Pred(Array[i], Array[ixj]);
+                    if (SwapNeeded)
+                    {
+                        Swap(Array[i], Array[ixj]);
+                    }
+                }
+            });
+        }
+    }
+
+    if (Pow2 > N)
+    {
+        Array.SetNum(N);
+    }
+}
+
+template <typename Predicate>
+static void ParallelBitonicSort(TArray<FPointRec_Octree>& Array, Predicate Pred)
+{
+    const int32 N = Array.Num();
+    int32 Pow2 = 1;
+    while (Pow2 < N)
+    {
+        Pow2 <<= 1;
+    }
+
+    if (Pow2 > N)
+    {
+        FPointRec_Octree Sentinel;
+        Sentinel.DistanceSq = FLT_MAX;
         Array.AddDefaulted(Pow2 - N);
         for (int32 i = N; i < Pow2; ++i)
         {
@@ -649,3 +716,168 @@ bool UExportVisibleLidarPointsLOD::SavePointCloudTextures(ULidarPointCloud* Poin
     return false;
 #endif
 }
+
+// -----------------------------------------------------------------------------
+//  Octree-based LOD sampling and export
+// -----------------------------------------------------------------------------
+bool UExportVisibleLidarPointsLOD::ExportVisiblePointsOctreeLOD(
+    const TArray<ALidarPointCloudActor*>& PointCloudActors,
+    UCameraComponent*                     Camera,
+    const FString&                        AbsoluteFilePath,
+    float                                 FrustumFar,
+    float                                 NearDepthRadius,
+    float                                 FarDepthRadius,
+    int32                                 NearDepth,
+    int32                                 FarDepth,
+    bool                                  bWorldSpace,
+    int32                                 MaxPointCount)
+{
+    if (PointCloudActors.Num() == 0 || !Camera)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: Invalid input."));
+        return false;
+    }
+
+    if (AbsoluteFilePath.IsEmpty())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: AbsoluteFilePath is empty."));
+        return false;
+    }
+
+    if (!(NearDepthRadius < FarDepthRadius) || NearDepthRadius <= 0.f)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: Radius values invalid."));
+        return false;
+    }
+
+    if (!(NearDepth >= 0 && FarDepth >= 0 && NearDepth <= FarDepth))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: Depth parameters invalid."));
+        return false;
+    }
+
+    const double StartTime = FPlatformTime::Seconds();
+
+    FConvexVolume WorldFrustum;
+    BuildFrustumFromCamera(Camera, WorldFrustum, FrustumFar);
+
+    const FVector CamLoc = Camera->GetComponentLocation();
+    const bool bUseLimit = MaxPointCount > 0;
+
+    TArray<FPointRec_Octree> AllPoints;
+
+    TArray<TFuture<TArray<FPointRec_Octree>>> Futures;
+    Futures.Reserve(PointCloudActors.Num());
+
+    for (ALidarPointCloudActor* Actor : PointCloudActors)
+    {
+        Futures.Add(Async(EAsyncExecution::ThreadPool, [Actor, WorldFrustum, CamLoc,
+                                                        NearDepthRadius, FarDepthRadius,
+                                                        NearDepth,       FarDepth]() -> TArray<FPointRec_Octree>
+        {
+            TArray<FPointRec_Octree> LocalOutput;
+            if (!Actor) return LocalOutput;
+
+            ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
+            ULidarPointCloud*          Cloud = Comp ? Comp->GetPointCloud() : nullptr;
+            if (!Cloud) return LocalOutput;
+
+            FConvexVolume LocalFrustum = WorldFrustum;
+            const FMatrix WorldToLocal = Comp->GetComponentTransform().ToMatrixWithScale().Inverse();
+            const FVector Offset       = Cloud->LocationOffset;
+            for (FPlane& Plane : LocalFrustum.Planes)
+            {
+                Plane = Plane.TransformBy(WorldToLocal);
+                Plane = Plane.TransformBy(FTranslationMatrix(-Offset));
+                Plane.Normalize();
+            }
+            LocalFrustum.Init();
+
+            FLidarPointCloudOctree& Octree = Cloud->GetOctree();
+            const FTransform& LocalToWorld = Comp->GetComponentTransform();
+            LocalOutput.Reserve(1024);
+
+            FLidarPointCloudTraversalOctree Traversal(&Octree, LocalToWorld);
+            Traversal.Traverse(true,
+                [&](FLidarPointCloudTraversalOctree::FNode& Node, bool bNodeCompletelyInside)
+            {
+                const FVector NodeCenterWS = LocalToWorld.TransformPosition(Node.Bounds.GetCenter() + Offset);
+                const float   Dist        = FVector::Dist(NodeCenterWS, CamLoc);
+                const uint32  DepthLimit  = ComputeAllowedDepth(Dist, NearDepthRadius, FarDepthRadius, NearDepth, FarDepth);
+
+                if (Node.Node->GetDepth() >= DepthLimit)
+                {
+                    const FLidarPointCloudPoint* Pts = Node.Node->GetData();
+                    const uint32 Num                 = Node.Node->GetNumPoints();
+                    for (uint32 idx = 0; idx < Num; ++idx)
+                    {
+                        const FLidarPointCloudPoint& Pt = Pts[idx];
+                        FPointRec_Octree Rec;
+                        Rec.LocalPos   = FVector(Pt.Location) + Offset;
+                        Rec.WorldPos   = LocalToWorld.TransformPosition(Rec.LocalPos);
+                        Rec.DistanceSq = FVector::DistSquared(Rec.WorldPos, CamLoc);
+                        Rec.Color      = Pt.Color;
+                        LocalOutput.Add(Rec);
+                    }
+                    return false;
+                }
+                return true;
+            },
+            &LocalFrustum);
+
+            return LocalOutput;
+        }));
+    }
+
+    for (TFuture<TArray<FPointRec_Octree>>& Future : Futures)
+    {
+        AllPoints.Append(Future.Get());
+    }
+
+    if (AllPoints.Num() == 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ExportVisiblePointsOctreeLOD: No points collected."));
+        return false;
+    }
+
+    if (bUseLimit && AllPoints.Num() > MaxPointCount)
+    {
+        ParallelBitonicSort(AllPoints, [](const FPointRec_Octree& A, const FPointRec_Octree& B)
+        {
+            return A.DistanceSq < B.DistanceSq;
+        });
+        AllPoints.SetNum(MaxPointCount);
+    }
+
+    TArray<FString> Lines;
+    Lines.Reserve(AllPoints.Num());
+    for (const FPointRec_Octree& Rec : AllPoints)
+    {
+        const FVector& Pos = bWorldSpace ? Rec.WorldPos : Rec.LocalPos;
+        Lines.Add(FString::Printf(TEXT("%.8f %.8f %.8f %d %d %d %d"),
+            Pos.X * 0.01f, -Pos.Y * 0.01f, Pos.Z * 0.01f,
+            Rec.Color.A, Rec.Color.R, Rec.Color.G, Rec.Color.B));
+    }
+
+    const FString DirPath = FPaths::GetPath(AbsoluteFilePath);
+    if (!DirPath.IsEmpty() && !IFileManager::Get().DirectoryExists(*DirPath))
+    {
+        if (!IFileManager::Get().MakeDirectory(*DirPath, true))
+        {
+            UE_LOG(LogTemp, Error, TEXT("ExportVisiblePointsOctreeLOD: Failed to create dir %s"), *DirPath);
+            return false;
+        }
+    }
+
+    const FString Joined = FString::Join(Lines, TEXT("\n")) + TEXT("\n");
+    if (!FFileHelper::SaveStringToFile(Joined, *AbsoluteFilePath, FFileHelper::EEncodingOptions::AutoDetect, &IFileManager::Get(), FILEWRITE_AllowRead))
+    {
+        UE_LOG(LogTemp, Error, TEXT("ExportVisiblePointsOctreeLOD: Failed to save %s"), *AbsoluteFilePath);
+        return false;
+    }
+
+    const double TotalTime = FPlatformTime::Seconds() - StartTime;
+    UE_LOG(LogTemp, Log, TEXT("ExportVisiblePointsOctreeLOD: Wrote %d points to %s (%.2f sec)"), Lines.Num(), *AbsoluteFilePath, TotalTime);
+    return true;
+}
+

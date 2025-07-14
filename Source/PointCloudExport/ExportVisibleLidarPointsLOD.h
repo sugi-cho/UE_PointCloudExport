@@ -84,4 +84,20 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
     static bool SavePointCloudTextures(ULidarPointCloud* PointCloud);
+
+    /**
+     * Octree ベースの LOD で可視ポイントを出力
+     */
+    UFUNCTION(BlueprintCallable, Category = "Lidar|Export")
+    static bool ExportVisiblePointsOctreeLOD(
+        const TArray<ALidarPointCloudActor*>& PointCloudActors,
+        UCameraComponent* Camera,
+        const FString& AbsoluteFilePath,
+        float FrustumFar,
+        float NearDepthRadius,
+        float FarDepthRadius,
+        int32 NearDepth,
+        int32 FarDepth,
+        bool bWorldSpace,
+        int32 MaxPointCount = 0);
 };
