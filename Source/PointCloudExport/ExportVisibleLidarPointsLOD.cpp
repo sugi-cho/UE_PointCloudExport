@@ -776,31 +776,37 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsOctreeLOD(
     {
         Futures.Add(Async(EAsyncExecution::ThreadPool, [Actor, WorldFrustum, CamLoc,
                                                         NearDepthRadius, FarDepthRadius,
-                                                        NearDepth,       FarDepth]() -> TArray<FPointRec_Octree>
+                                                        NearDepth, FarDepth]() -> TArray<FPointRec_Octree>
         {
             TArray<FPointRec_Octree> LocalOutput;
             if (!Actor) return LocalOutput;
 
             ULidarPointCloudComponent* Comp = Actor->GetPointCloudComponent();
-            ULidarPointCloud*          Cloud = Comp ? Comp->GetPointCloud() : nullptr;
+            ULidarPointCloud* Cloud = Comp ? Comp->GetPointCloud() : nullptr;
             if (!Cloud) return LocalOutput;
 
             const FVector Offset = Cloud->LocationOffset;
-
             FLidarPointCloudOctree& Octree = Cloud->Octree;
             const FTransform& LocalToWorld = Comp->GetComponentTransform();
             LocalOutput.Reserve(1024);
 
-            FLidarPointCloudTraversalOctree Traversal(&Octree, LocalToWorld);
+            struct FNodeToProcess
+            {
+                FLidarPointCloudOctreeNode* Node;
+                int32 Depth;
+            };
 
-            TArray<FTraversalNode*> Stack;
-            Stack.Add(&Traversal.Root);
+            TArray<FNodeToProcess> Stack;
+            if (Octree.GetRoot())
+            {
+                Stack.Add({ Octree.GetRoot(), 0 });
+            }
 
             while (Stack.Num() > 0)
             {
-                FTraversalNode* Cur = Stack.Pop(false);
+                FNodeToProcess Current = Stack.Pop(EAllowShrinking::No);
 
-                FBox NodeBox = Cur->DataNode->GetBounds().ShiftBy(Offset).TransformBy(LocalToWorld);
+                FBox NodeBox = Current.Node->GetBounds().ShiftBy(Offset).TransformBy(LocalToWorld);
                 if (!WorldFrustum.IntersectBox(NodeBox.GetCenter(), NodeBox.GetExtent()))
                 {
                     continue;
@@ -809,26 +815,33 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsOctreeLOD(
                 const float Dist = FVector::Dist(NodeBox.GetCenter(), CamLoc);
                 const uint32 DepthLimit = ComputeAllowedDepth(Dist, NearDepthRadius, FarDepthRadius, NearDepth, FarDepth);
 
-                if (Cur->Depth >= DepthLimit || Cur->Children.Num() == 0)
+                if (Current.Depth >= (int32)DepthLimit || Current.Node->GetChildrenBitmask() == 0)
                 {
-                    const FLidarPointCloudPoint* Pts = Cur->DataNode->GetData();
-                    const uint32 Num = Cur->DataNode->GetNumPoints();
-                    for (uint32 idx = 0; idx < Num; ++idx)
+                    TArray<FLidarPointCloudPoint> Points;
+                    Current.Node->GetPoints(Points);
+                    for (const FLidarPointCloudPoint& Pt : Points)
                     {
-                        const FLidarPointCloudPoint& Pt = Pts[idx];
                         FPointRec_Octree Rec;
-                        Rec.LocalPos   = FVector(Pt.Location) + Offset;
-                        Rec.WorldPos   = LocalToWorld.TransformPosition(Rec.LocalPos);
+                        Rec.LocalPos = FVector(Pt.Location) + Offset;
+                        Rec.WorldPos = LocalToWorld.TransformPosition(Rec.LocalPos);
                         Rec.DistanceSq = FVector::DistSquared(Rec.WorldPos, CamLoc);
-                        Rec.Color      = Pt.Color;
+                        Rec.Color = Pt.Color;
                         LocalOutput.Add(Rec);
                     }
                     continue;
                 }
 
-                for (FTraversalNode& Child : Cur->Children)
+                uint8 Mask = Current.Node->GetChildrenBitmask();
+                for (uint8 ChildIndex = 0; ChildIndex < 8; ++ChildIndex)
                 {
-                    Stack.Add(&Child);
+                    if (Mask & (1 << ChildIndex))
+                    {
+                        FLidarPointCloudOctreeNode* Child = Current.Node->GetChildNodeAtLocation(ChildIndex);
+                        if (Child)
+                        {
+                            Stack.Add({ Child, Current.Depth + 1 });
+                        }
+                    }
                 }
             }
 
