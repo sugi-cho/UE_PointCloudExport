@@ -105,6 +105,9 @@ struct FPointRec_Octree
     FColor  Color;
 };
 
+// Helper alias for traversal node type used by newer plugin versions
+using FTraversalNode = FLidarPointCloudTraversalOctreeNode;
+
 static FORCEINLINE uint32 ComputeAllowedDepth(float Distance, float NearR, float FarR, int32 NearD, int32 FarD)
 {
     if (Distance <= NearR)         { return (uint32)NearD; }
@@ -793,22 +796,23 @@ bool UExportVisibleLidarPointsLOD::ExportVisiblePointsOctreeLOD(
             }
             LocalFrustum.Init();
 
-            FLidarPointCloudOctree& Octree = Cloud->GetOctree();
+            // Access the octree directly from the point cloud instance
+            FLidarPointCloudOctree& Octree = Cloud->Octree;
             const FTransform& LocalToWorld = Comp->GetComponentTransform();
             LocalOutput.Reserve(1024);
 
             FLidarPointCloudTraversalOctree Traversal(&Octree, LocalToWorld);
             Traversal.Traverse(true,
-                [&](FLidarPointCloudTraversalOctree::FNode& Node, bool bNodeCompletelyInside)
+                [&](FTraversalNode& Node, bool bNodeCompletelyInside)
             {
                 const FVector NodeCenterWS = LocalToWorld.TransformPosition(Node.Bounds.GetCenter() + Offset);
                 const float   Dist        = FVector::Dist(NodeCenterWS, CamLoc);
                 const uint32  DepthLimit  = ComputeAllowedDepth(Dist, NearDepthRadius, FarDepthRadius, NearDepth, FarDepth);
 
-                if (Node.Node->GetDepth() >= DepthLimit)
+                if (Node.DataNode->GetDepth() >= DepthLimit)
                 {
-                    const FLidarPointCloudPoint* Pts = Node.Node->GetData();
-                    const uint32 Num                 = Node.Node->GetNumPoints();
+                    const FLidarPointCloudPoint* Pts = Node.DataNode->GetData();
+                    const uint32 Num                 = Node.DataNode->GetNumPoints();
                     for (uint32 idx = 0; idx < Num; ++idx)
                     {
                         const FLidarPointCloudPoint& Pt = Pts[idx];
