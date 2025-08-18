@@ -10,7 +10,7 @@ public class PointCloudExport : ModuleRules
 	
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "AssetRegistry" });
 
-                PrivateDependencyModuleNames.AddRange(new string[] { "LidarPointCloudRuntime" });
+                PrivateDependencyModuleNames.AddRange(new string[] { "LidarPointCloudRuntime", "RenderCore", "RHI" });
 
                 if (Target.bBuildEditor)
                 {
